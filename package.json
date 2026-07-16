@@ -2,8 +2,8 @@
   "name": "yieldscope",
   "private": true,
   "scripts": {
-    "dev": "pnpm --dir web dev",
-    "build": "pnpm --dir web build",
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "node scripts/check-coverage.mjs",
