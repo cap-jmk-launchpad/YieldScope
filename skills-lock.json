@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "monskill": {
+      "source": "therealharpaljadeja/monskills",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "86e4bfac83409f9ec29dbfd4beafa49717bdfe50b836bc997c1891ad197fac2b"
+    }
+  }
+}

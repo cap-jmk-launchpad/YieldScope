@@ -1,0 +1,19 @@
+{
+  "rows": [
+    {
+      "asset": "USDT",
+      "rewards": "1.23456789",
+      "time": 1719792000000,
+      "type": "BONUS",
+      "projectId": "USDT001"
+    },
+    {
+      "asset": "BTC",
+      "rewards": "0.00001234",
+      "time": 1719878400000,
+      "type": "REALTIME_REWARDS",
+      "projectId": "BTC001"
+    }
+  ],
+  "total": 2
+}

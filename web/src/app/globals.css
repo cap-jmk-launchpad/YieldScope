@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #05080f;
+  --ink-elevated: #0c1524;
+  --paper: #e8eef6;
+  --mint: #3dffa8;
+  --mint-dim: #1a6b4a;
+  --warn: #f0a060;
+  --error: #ff6b6b;
+  --muted: #8a9bb0;
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --font-display: var(--font-syne), system-ui, sans-serif;
+  --font-sans: var(--font-plex), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-sans);
+}
+
+a {
+  color: inherit;
+}
+
+.btn-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.85rem 1.4rem;
+  background: var(--mint);
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
+}
+
+.btn-cta:hover {
+  box-shadow: inset 0 -2px 0 color-mix(in oklab, var(--ink) 25%, transparent);
+  transform: translateY(-1px);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.85rem 1.4rem;
+  background: transparent;
+  color: var(--paper);
+  text-decoration: none;
+  border: 1px solid color-mix(in oklab, var(--paper) 35%, transparent);
+  transition: border-color 180ms ease, color 180ms ease;
+}
+
+.btn-ghost:hover {
+  border-color: var(--mint);
+  color: var(--mint);
+}

@@ -1,0 +1,128 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  useAccount,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from "wagmi";
+import {
+  CHECKPOINT_ADDRESS,
+  earningsCheckpointAbi,
+} from "@/lib/contracts";
+
+interface Preview {
+  root: `0x${string}`;
+  windowStart: number;
+  windowEnd: number;
+  eventCount: number;
+}
+
+export function AttestPanel() {
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { address, isConnected } = useAccount();
+  const { writeContract, data: hash, isPending, error: writeError } =
+    useWriteContract();
+  const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({
+    hash,
+  });
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetch("/api/checkpoint/preview");
+      setPreview(await res.json());
+    })();
+  }, []);
+
+  async function refresh() {
+    const res = await fetch("/api/checkpoint/preview");
+    setPreview(await res.json());
+  }
+
+  function attest() {
+    setError(null);
+    if (!preview) return;
+    if (
+      !CHECKPOINT_ADDRESS ||
+      CHECKPOINT_ADDRESS === "0x0000000000000000000000000000000000000000"
+    ) {
+      setError(
+        "Set NEXT_PUBLIC_CHECKPOINT_ADDRESS after deploying EarningsCheckpoint.",
+      );
+      return;
+    }
+    if (!isConnected || !address) {
+      setError("Connect a Monad wallet first.");
+      return;
+    }
+    writeContract({
+      address: CHECKPOINT_ADDRESS,
+      abi: earningsCheckpointAbi,
+      functionName: "attest",
+      args: [
+        preview.root,
+        BigInt(preview.windowStart),
+        BigInt(preview.windowEnd),
+        `yieldscope:events:${preview.eventCount}`,
+      ],
+    });
+  }
+
+  return (
+    <div className="attest-panel">
+      <h2>Attest checkpoint</h2>
+      <p className="lede">
+        Posts a Merkle root of the current earn ledger to{" "}
+        <code>EarningsCheckpoint</code> on Monad testnet (chain 10143).
+      </p>
+      {preview ? (
+        <dl>
+          <div>
+            <dt>Events</dt>
+            <dd className="mono">{preview.eventCount}</dd>
+          </div>
+          <div>
+            <dt>Root</dt>
+            <dd className="mono break">{preview.root}</dd>
+          </div>
+          <div>
+            <dt>Window</dt>
+            <dd className="mono">
+              {preview.windowStart} → {preview.windowEnd}
+            </dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="lede">Loading preview…</p>
+      )}
+      <div className="actions">
+        <button type="button" className="btn-secondary" onClick={() => refresh()}>
+          Refresh root
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={isPending || confirming || !preview}
+          onClick={attest}
+        >
+          {isPending || confirming ? "Attesting…" : "Attest on Monad"}
+        </button>
+      </div>
+      {error ? <p className="err">{error}</p> : null}
+      {writeError ? <p className="err">{writeError.message}</p> : null}
+      {isSuccess && hash ? (
+        <p className="ok">
+          Attested.{" "}
+          <a
+            href={`https://testnet.monadscan.com/tx/${hash}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            View on Monadscan
+          </a>
+        </p>
+      ) : null}
+    </div>
+  );
+}
