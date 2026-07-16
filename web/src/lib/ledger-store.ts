@@ -22,6 +22,7 @@ function emptySources(): Record<SourceId, SourceState> {
     binance: { status: "not_connected", eventCount: 0 },
     okx: { status: "not_connected", eventCount: 0 },
     monad_stake: { status: "not_connected", eventCount: 0 },
+    lunc_stake: { status: "not_connected", eventCount: 0 },
   };
 }
 

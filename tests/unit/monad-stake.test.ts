@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { encodeAbiParameters } from "viem";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   decodeGetDelegatorResult,
   delegatorStatesToEarnEvents,
@@ -100,6 +100,40 @@ describe("Monad staking reader", () => {
         { validatorIds: [1n] },
       ),
     ).rejects.toThrow(/Invalid delegator/);
+  });
+
+  it("lists delegations via getDelegations then fetches rewards", async () => {
+    const { encodeAbiParameters } = await import("viem");
+    const delegationsEncoded = encodeAbiParameters(
+      [{ type: "bool" }, { type: "uint64[]" }, { type: "uint64" }],
+      [true, [1n], 0n],
+    );
+    let calls = 0;
+    const rpc2 = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return delegationsEncoded;
+      return fixture.encodedGetDelegatorResult;
+    });
+    const events = await fetchMonadStakeEarnEvents(
+      "0x1111111111111111111111111111111111111111",
+      rpc2,
+      { asOf: new Date("2024-07-01T00:00:00.000Z") },
+    );
+    expect(events).toHaveLength(1);
+    expect(rpc2).toHaveBeenCalled();
+  });
+
+  it("returns empty when no delegations", async () => {
+    const { encodeAbiParameters } = await import("viem");
+    const empty = encodeAbiParameters(
+      [{ type: "bool" }, { type: "uint64[]" }, { type: "uint64" }],
+      [true, [], 0n],
+    );
+    const events = await fetchMonadStakeEarnEvents(
+      "0x1111111111111111111111111111111111111111",
+      async () => empty,
+    );
+    expect(events).toEqual([]);
   });
 
   it("round-trips encode/decode with viem", () => {

@@ -6,13 +6,15 @@
     "build": "pnpm --dir web build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "node scripts/check-coverage.mjs",
     "test:smoke": "tsx scripts/smoke.ts",
     "test:contracts": "forge test --root contracts"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.23.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10",
-    "viem": "^2.55.2"
+    "viem": "^2.55.2",
+    "vitest": "^4.1.10"
   }
 }

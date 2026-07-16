@@ -1,5 +1,6 @@
 "use client";
 
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useEffect, useState } from "react";
 import {
   useAccount,
@@ -96,6 +97,11 @@ export function AttestPanel() {
       ) : (
         <p className="lede">Loading preview…</p>
       )}
+      {!isConnected ? (
+        <div className="wallet-connect">
+          <ConnectButton label="Connect wallet" showBalance={false} />
+        </div>
+      ) : null}
       <div className="actions">
         <button type="button" className="btn-secondary" onClick={() => refresh()}>
           Refresh root
@@ -103,7 +109,7 @@ export function AttestPanel() {
         <button
           type="button"
           className="btn-primary"
-          disabled={isPending || confirming || !preview}
+          disabled={isPending || confirming || !preview || !isConnected}
           onClick={attest}
         >
           {isPending || confirming ? "Attesting…" : "Attest on Monad"}

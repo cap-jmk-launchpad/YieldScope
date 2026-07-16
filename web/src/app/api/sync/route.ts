@@ -1,33 +1,92 @@
 import { NextResponse } from "next/server";
 import type { CexCredentials } from "@/lib/adapters/types";
-import { syncBinance, syncMonadStake, syncOkx, snapshot } from "@/lib/sync";
+import { requireUser } from "@/lib/auth/require-user";
+import { loadDbLedger, LedgerPersistError } from "@/lib/ledger-db";
+import {
+  syncBinance,
+  syncLuncStake,
+  syncMonadStake,
+  syncOkx,
+} from "@/lib/sync";
 import type { Address } from "viem";
 
 export async function POST(req: Request) {
+  const gate = await requireUser();
+  if (gate.error) return gate.error;
+
   const body = (await req.json().catch(() => ({}))) as {
-    source?: "binance" | "okx" | "monad_stake" | "all";
+    source?: "binance" | "okx" | "monad_stake" | "lunc_stake" | "all";
     binance?: CexCredentials;
     okx?: CexCredentials;
     address?: string;
+    luncAddress?: string;
+    chainId?: number;
+  };
+
+  const ctx = {
+    userId: gate.user.id,
+    email: gate.user.email,
+    walletAddress: body.address ?? null,
+    chainId: body.chainId ?? 10143,
+    luncAddress: body.luncAddress ?? null,
   };
 
   const source = body.source ?? "all";
   const results: Record<string, unknown> = {};
 
-  if (source === "binance" || source === "all") {
-    results.binance = await syncBinance(body.binance ?? readEnvBinance());
-  }
-  if (source === "okx" || source === "all") {
-    results.okx = await syncOkx(body.okx ?? readEnvOkx());
-  }
-  if (source === "monad_stake" || source === "all") {
-    const address = (body.address ||
-      process.env.MONAD_DEMO_ADDRESS ||
-      null) as Address | null;
-    results.monad_stake = await syncMonadStake(address);
-  }
+  try {
+    if (source === "binance" || source === "all") {
+      results.binance = await syncBinance(
+        body.binance ?? readEnvBinance(),
+        ctx,
+      );
+    }
+    if (source === "okx" || source === "all") {
+      results.okx = await syncOkx(body.okx ?? readEnvOkx(), ctx);
+    }
+    if (source === "monad_stake" || source === "all") {
+      const address = (body.address ||
+        process.env.MONAD_DEMO_ADDRESS ||
+        null) as Address | null;
+      results.monad_stake = await syncMonadStake(address, {
+        ...ctx,
+        walletAddress: address,
+      });
+    }
+    if (source === "lunc_stake" || source === "all") {
+      results.lunc_stake = await syncLuncStake(
+        body.luncAddress ?? process.env.LUNC_DEMO_ADDRESS ?? null,
+        ctx,
+      );
+    }
 
-  return NextResponse.json({ results, ledger: snapshot() });
+    const ledger = await loadDbLedger(gate.user.id);
+    const failed = Object.values(results).some(
+      (r) =>
+        r &&
+        typeof r === "object" &&
+        "status" in r &&
+        (r as { status: string }).status === "error" &&
+        String((r as { error?: string }).error ?? "").startsWith(
+          "Persist failed",
+        ),
+    );
+    if (failed) {
+      return NextResponse.json(
+        { error: "Sync persist failed — no silent success.", results, ledger },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({ results, ledger });
+  } catch (err) {
+    const message =
+      err instanceof LedgerPersistError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : "Sync failed";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 }
 
 function readEnvBinance(): CexCredentials | null {

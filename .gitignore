@@ -32,3 +32,5 @@ contracts/broadcast/.agents/skills/impeccable/
 # Vendor skills (reinstall via npx impeccable / npx skills)
 .agents/skills/impeccable/
 .codex/
+
+coverage/

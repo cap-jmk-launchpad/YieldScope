@@ -14,6 +14,7 @@ data:
   NEXT_PUBLIC_MONAD_RPC_URL: "https://testnet-rpc.monad.xyz"
   NEXT_PUBLIC_CHECKPOINT_ADDRESS: "0x0000000000000000000000000000000000000000"
   USE_FIXTURE_DEMO: "1"
+  NEXT_PUBLIC_SUPABASE_URL: "https://supabase.majico.d3bu7.com"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,10 +35,12 @@ spec:
         app: yieldscope-web
         app.kubernetes.io/name: yieldscope
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: engine
       containers:
         - name: web
-          image: ghcr.io/cap-jmk-real/yieldscope-web:latest
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/cap-jmk-launchpad/yieldscope-web:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
               name: http
@@ -46,13 +49,19 @@ spec:
                 name: yieldscope-web
             - secretRef:
                 name: yieldscope-secrets
-                optional: true
+                optional: false
           readinessProbe:
             httpGet:
               path: /
               port: 3000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 8
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
           resources:
             requests:
               cpu: 50m

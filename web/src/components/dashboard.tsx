@@ -9,13 +9,30 @@ interface LedgerResponse {
     SourceId,
     { status: SourceStatus; error?: string; eventCount: number; lastSyncedAt?: string }
   >;
+  aggregates?: {
+    bySource: Array<{
+      source: SourceId;
+      eventCount: number;
+      totalAmount: string;
+      lastEarnedAt: string | null;
+    }>;
+    byAsset: Array<{
+      asset: string;
+      source: SourceId;
+      eventCount: number;
+      totalAmount: string;
+    }>;
+  };
+  wallet?: { address: string; chainId: number; lastSeenAt: string } | null;
   updatedAt: string;
+  error?: string;
 }
 
 const SOURCE_LABEL: Record<SourceId, string> = {
   binance: "Binance",
   okx: "OKX",
   monad_stake: "Monad stake",
+  lunc_stake: "LUNC stake",
 };
 
 export function Dashboard() {
@@ -25,7 +42,11 @@ export function Dashboard() {
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/ledger");
-    setLedger(await res.json());
+    const json = (await res.json()) as LedgerResponse;
+    setLedger(json);
+    if (!res.ok) {
+      setMessage(json.error ?? "Failed to load ledger");
+    }
   }, []);
 
   useEffect(() => {
@@ -36,17 +57,19 @@ export function Dashboard() {
     setBusy(true);
     setMessage(null);
     try {
-      const body: Record<string, unknown> = { source };
+      const body: Record<string, unknown> = { source, chainId: 10143 };
       const stored = sessionStorage.getItem("yieldscope.creds");
       if (stored) {
         const creds = JSON.parse(stored) as {
           binance?: unknown;
           okx?: unknown;
           address?: string;
+          luncAddress?: string;
         };
         if (creds.binance) body.binance = creds.binance;
         if (creds.okx) body.okx = creds.okx;
         if (creds.address) body.address = creds.address;
+        if (creds.luncAddress) body.luncAddress = creds.luncAddress;
       }
       const res = await fetch("/api/sync", {
         method: "POST",
@@ -54,8 +77,12 @@ export function Dashboard() {
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      setLedger(json.ledger);
-      setMessage("Sync finished — only real adapter results shown.");
+      if (json.ledger) setLedger(json.ledger);
+      if (!res.ok) {
+        setMessage(json.error ?? "Sync failed — persist may have failed closed.");
+      } else {
+        setMessage("Sync finished — events persisted to Supabase.");
+      }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sync failed");
     } finally {
@@ -63,7 +90,7 @@ export function Dashboard() {
     }
   }
 
-  const totalLabel = summarizeTotal(ledger?.events ?? []);
+  const totalLabel = summarizeFromAggregates(ledger);
 
   return (
     <div className="dash">
@@ -83,21 +110,55 @@ export function Dashboard() {
       </header>
 
       <p className="total">{totalLabel}</p>
+      {ledger?.wallet ? (
+        <p className="msg mono">
+          Wallet {ledger.wallet.address} · chain {ledger.wallet.chainId}
+        </p>
+      ) : null}
       {message ? <p className="msg">{message}</p> : null}
 
       <div className="sources">
         {(Object.keys(SOURCE_LABEL) as SourceId[]).map((id) => {
           const s = ledger?.sources[id];
+          const agg = ledger?.aggregates?.bySource.find((a) => a.source === id);
           return (
             <div key={id} className={`source status-${s?.status ?? "not_connected"}`}>
               <span className="source-name">{SOURCE_LABEL[id]}</span>
               <span className="source-status">{s?.status ?? "not_connected"}</span>
-              <span className="source-count">{s?.eventCount ?? 0} events</span>
+              <span className="source-count">
+                {agg?.eventCount ?? s?.eventCount ?? 0} events
+                {agg ? ` · Σ ${agg.totalAmount}` : ""}
+              </span>
               {s?.error ? <span className="source-error">{s.error}</span> : null}
             </div>
           );
         })}
       </div>
+
+      {ledger?.aggregates?.byAsset && ledger.aggregates.byAsset.length > 0 ? (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Source</th>
+                <th>Events</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ledger.aggregates.byAsset.map((a) => (
+                <tr key={`${a.source}:${a.asset}`}>
+                  <td>{a.asset}</td>
+                  <td>{SOURCE_LABEL[a.source]}</td>
+                  <td className="mono">{a.eventCount}</td>
+                  <td className="mono">{a.totalAmount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
 
       <div className="table-wrap">
         <table>
@@ -134,17 +195,18 @@ export function Dashboard() {
   );
 }
 
-function summarizeTotal(events: EarnEvent[]): string {
-  if (events.length === 0) return "0 events · connect a source to begin";
-  const byAsset = new Map<string, number>();
-  for (const e of events) {
-    const n = Number(e.amount);
-    if (Number.isFinite(n)) {
-      byAsset.set(e.asset, (byAsset.get(e.asset) ?? 0) + n);
-    }
+function summarizeFromAggregates(ledger: LedgerResponse | null): string {
+  if (!ledger) return "Loading…";
+  const byAsset = ledger.aggregates?.byAsset ?? [];
+  if (byAsset.length === 0 && (ledger.events?.length ?? 0) === 0) {
+    return "0 events · connect a source to begin";
   }
-  const parts = [...byAsset.entries()]
-    .slice(0, 4)
-    .map(([asset, amt]) => `${amt.toPrecision(4)} ${asset}`);
-  return `${events.length} events · ${parts.join(" · ") || "mixed assets"}`;
+  if (byAsset.length > 0) {
+    const parts = byAsset
+      .slice(0, 4)
+      .map((a) => `${Number(a.totalAmount).toPrecision(4)} ${a.asset}`);
+    const n = byAsset.reduce((s, a) => s + a.eventCount, 0);
+    return `${n} events · ${parts.join(" · ")}`;
+  }
+  return `${ledger.events.length} events`;
 }

@@ -17,14 +17,17 @@ YieldScope syncs **earn-only** streams (not full portfolios) into one dashboard,
 | Binance | Simple Earn rewards / interest history |
 | OKX | Savings / earn history |
 | Monad | Staking unclaimed + accrued rewards via precompile `0x1000` |
+| LUNC | Terra Classic pending staking rewards via public LCD |
 
 No Zerion sprawl. No tax engine. No APY farm browser.
 
 ## Auth
 
-1. **OAuth first** where the exchange supports a partner flow.
-2. **Read-only API keys** as explicit fallback in the same Connect UI.
-3. Wallet connect for Monad stake reads and attestation.
+1. **Email/password** via Supabase Auth (`/login`, `/register`) with Turnstile bot protection.
+2. **Read-only API keys** for Binance / OKX in Connect UI (session-scoped).
+3. Wallet connect (RainbowKit) for Monad stake reads and attestation.
+4. Paste Terra Classic `terra1…` address (or explorer link) for LUNC stake rewards.
+5. `/app/*` and sync/attest APIs are fail-closed without a session.
 
 ## Fail closed
 

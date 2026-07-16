@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": "node .cursor/hooks/coverage-gate.mjs",
+        "failClosed": true,
+        "timeout": 300,
+        "loop_limit": 2
+      }
+    ]
+  }
+}

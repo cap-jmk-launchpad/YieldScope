@@ -37,13 +37,17 @@ cp .env.example web/.env.local
 pnpm --dir web dev
 ```
 
-Open http://localhost:3000 → Connect → Dashboard → Attest.
+Open http://localhost:3000 → Register/Sign in → Connect → Dashboard → Attest.
+
+Required for app access: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `web/.env.local`.
+Optional: Turnstile keys, `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for WalletConnect in the RainbowKit modal.
 
 ## Auth model
 
-Connect UI is **OAuth-first** with **read-only API key fallback** for Binance and OKX. Credentials stay in `sessionStorage` for the browser session (prototype). Server sync also accepts env vars for smoke (`BINANCE_*`, `OKX_*`).
-
-Fail closed: each source status is `ok | error | not_connected`. Broken adapters never invent earn rows.
+- **Account:** Supabase email/password at `/login` and `/register`, with Cloudflare Turnstile bot protection (env-configurable).
+- **CEX:** Connect UI is **read-only API keys** for Binance and OKX (sessionStorage). Server sync also accepts env vars for smoke (`BINANCE_*`, `OKX_*`).
+- **Wallet:** RainbowKit + wagmi on Monad testnet (chain `10143`) for stake reads and attestation.
+- **Fail closed:** `/app/*` requires a session; `/api/sync` and `/api/checkpoint/*` return 401 when unauthenticated. Broken adapters never invent earn rows.
 
 ## Live smoke (before demo recording)
 
@@ -95,7 +99,7 @@ Supabase SQL: `supabase/migrations/202607160001_earn_ledger.sql` (run against en
 ## Demo video script (record yourself)
 
 1. Landing — brand **YieldScope**, one CTA.
-2. Connect — show OAuth tab, switch to API keys fallback; connect Monad wallet.
+2. Connect — paste read-only Binance/OKX API keys; connect Monad wallet via RainbowKit.
 3. Sync — dashboard: source statuses + real earn rows (or fixture demo with `USE_FIXTURE_DEMO=1`).
 4. Attest — refresh root, submit `attest`, open Monadscan tx.
 5. Close on pitch: CeFi earn + Monad stake + portable checkpoint, test-first.

@@ -15,13 +15,13 @@
 | **Lido Rewards / per-protocol UIs** | Deep rewards for one protocol | Siloed; ignores CEX earn |
 | **APY scanners / yield browsers** | Farm discovery & APY shopping | Discovery ≠ your personal accrued earnings ledger |
 
-**Whitespace:** A narrow product about **what you actually earned** across **Binance + OKX earn + Monad staking**, with **OAuth-first connect**, **test-proven adapters**, and an **onchain checkpoint**.
+**Whitespace:** A narrow product about **what you actually earned** across **Binance + OKX earn + Monad staking**, with **keys-based CEX connect**, **test-proven adapters**, and an **onchain checkpoint**.
 
 ### How we are different
 
 1. **Earn-native, not portfolio-native** — Rewards/interest/staking accrual, not the whole spot bag.
 2. **CeFi + Monad in one pane** — Competitors pick CEX *or* DeFi; we bridge both for this personal pain.
-3. **OAuth first, keys as fallback** — Safer connect story than forever-paste master keys.
+3. **Read-only keys + wallet** — Explicit, scoped CEX credentials plus Monad wallet for stake/attest.
 4. **Proof, not screenshots** — `EarningsCheckpoint` on Monad makes a sync window explorer-verifiable.
 5. **Depth over breadth** — Three sources that pass tests (Phase 2 expands later).
 

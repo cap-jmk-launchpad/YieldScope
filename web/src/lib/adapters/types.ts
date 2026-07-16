@@ -1,6 +1,6 @@
-/** Shared earn-event shape across Binance, OKX, and Monad staking adapters. */
+/** Shared earn-event shape across Binance, OKX, Monad, and LUNC staking adapters. */
 
-export type SourceId = "binance" | "okx" | "monad_stake";
+export type SourceId = "binance" | "okx" | "monad_stake" | "lunc_stake";
 
 export type SourceStatus = "ok" | "error" | "not_connected";
 

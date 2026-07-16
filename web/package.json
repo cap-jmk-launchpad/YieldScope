@@ -4,19 +4,23 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "test": "cd .. && pnpm test"
   },
   "dependencies": {
+    "@marsidev/react-turnstile": "^1.5.3",
+    "@rainbow-me/rainbowkit": "^2.2.11",
+    "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.5",
     "@tanstack/react-query": "^5.101.2",
+    "@wagmi/core": "2.22.1",
     "next": "16.2.10",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "viem": "^2.55.2",
-    "wagmi": "^3.7.1"
+    "wagmi": "2.19.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
