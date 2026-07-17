@@ -1,0 +1,178 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mail
+  namespace: yieldscope-mail
+  labels:
+    app: yieldscope-mail
+spec:
+  serviceName: mail-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: yieldscope-mail
+  template:
+    metadata:
+      labels:
+        app: yieldscope-mail
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: engine
+      initContainers:
+        - name: seed-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /config/ssl /config/opendkim/keys
+              # Seed optional static files (postfix-*.cf helpers) without clobbering DKIM
+              if [ -d /seed ] && [ "$(ls -A /seed 2>/dev/null || true)" ]; then
+                for f in /seed/*; do
+                  base=$(basename "$f")
+                  case "$base" in
+                    opendkim|ssl) ;;
+                    *) cp -a "$f" "/config/$base" ;;
+                  esac
+                done
+              fi
+              cp /accounts/postfix-accounts.cf /config/postfix-accounts.cf
+              cp /tls/tls.crt /config/ssl/cert.pem
+              cp /tls/tls.key /config/ssl/key.pem
+              chmod 644 /config/ssl/cert.pem
+              chmod 600 /config/ssl/key.pem
+              echo "seeded accounts + tls; config listing:"
+              ls -la /config
+          volumeMounts:
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+            - name: accounts
+              mountPath: /accounts
+              readOnly: true
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+            - name: data
+              mountPath: /config
+              subPath: config
+      containers:
+        - name: mail
+          image: ghcr.io/docker-mailserver/docker-mailserver:14.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_PTRACE
+          ports:
+            - name: smtp
+              containerPort: 25
+            - name: submission
+              containerPort: 587
+            - name: submissione
+              containerPort: 465
+            - name: imap
+              containerPort: 143
+            - name: imaps
+              containerPort: 993
+          env:
+            - name: OVERRIDE_HOSTNAME
+              value: mail.yieldscope.d3bu7.com
+            - name: LOG_LEVEL
+              value: info
+            - name: ENABLE_OPENDKIM
+              value: "1"
+            - name: ENABLE_OPENDMARC
+              value: "1"
+            - name: ENABLE_FAIL2BAN
+              value: "0"
+            - name: ENABLE_SPAMASSASSIN
+              value: "0"
+            - name: ENABLE_CLAMAV
+              value: "0"
+            - name: ENABLE_RSPAMD
+              value: "0"
+            - name: ONE_DIR
+              value: "1"
+            - name: SSL_TYPE
+              value: manual
+            - name: SSL_CERT_PATH
+              value: /tmp/docker-mailserver/ssl/cert.pem
+            - name: SSL_KEY_PATH
+              value: /tmp/docker-mailserver/ssl/key.pem
+            - name: PERMIT_DOCKER
+              value: network
+            - name: POSTFIX_INET_PROTOCOLS
+              value: ipv4
+            - name: DOVECOT_INET_PROTOCOLS
+              value: ipv4
+            - name: POSTFIX_MESSAGE_SIZE_LIMIT
+              value: "52428800"
+            - name: ENABLE_POSTGREY
+              value: "0"
+            - name: TLS_LEVEL
+              value: modern
+            - name: SPOOF_PROTECTION
+              value: "1"
+          volumeMounts:
+            - name: data
+              mountPath: /var/mail
+              subPath: mail
+            - name: data
+              mountPath: /var/mail-state
+              subPath: state
+            - name: data
+              mountPath: /var/log/mail
+              subPath: log
+            - name: data
+              mountPath: /tmp/docker-mailserver
+              subPath: config
+          readinessProbe:
+            tcpSocket:
+              port: submission
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 20
+          livenessProbe:
+            tcpSocket:
+              port: smtp
+            initialDelaySeconds: 120
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1536Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: yieldscope-mail-data
+        - name: seed
+          configMap:
+            name: yieldscope-mail-config
+            optional: true
+        - name: accounts
+          secret:
+            secretName: yieldscope-mail-accounts
+        - name: tls
+          secret:
+            secretName: yieldscope-mail-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail-headless
+  namespace: yieldscope-mail
+  labels:
+    app: yieldscope-mail
+spec:
+  clusterIP: None
+  selector:
+    app: yieldscope-mail
+  ports:
+    - name: smtp
+      port: 25
+      targetPort: smtp

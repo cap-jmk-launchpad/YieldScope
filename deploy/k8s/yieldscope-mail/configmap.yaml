@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yieldscope-mail-config
+  namespace: yieldscope-mail
+  labels:
+    app: yieldscope-mail
+data:
+  # Optional Postfix override snippet (appended by DMS when present)
+  postfix-main.cf: |
+    # Cluster pod networks may reach submission; AUTH still required (not an open relay).
+    mynetworks = 127.0.0.0/8 [::1]/128 10.42.0.0/16 10.43.0.0/16

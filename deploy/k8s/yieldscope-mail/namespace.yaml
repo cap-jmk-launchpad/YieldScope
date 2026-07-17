@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yieldscope-mail
+  labels:
+    app.kubernetes.io/name: yieldscope-mail
+    app.kubernetes.io/part-of: yieldscope

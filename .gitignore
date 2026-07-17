@@ -12,6 +12,7 @@ web/.env.local
 **/.env
 !**/.env.example
 deploy/env/
+deploy/k8s/yieldscope-mail/dkim-public.txt
 
 # Next
 web/.next/

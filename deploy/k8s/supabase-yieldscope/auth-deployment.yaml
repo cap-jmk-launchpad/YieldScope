@@ -18,6 +18,11 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: engine
+      # Resolve LE-cert hostname to yieldscope-mail ClusterIP (in-cluster; avoid WAN hairpin)
+      hostAliases:
+        - ip: 10.43.250.25
+          hostnames:
+            - mail.yieldscope.d3bu7.com
       initContainers:
         - name: wait-db
           image: postgres:15-alpine

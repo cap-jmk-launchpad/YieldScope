@@ -1,0 +1,57 @@
+# Fixed ClusterIP so GoTrue hostAliases can resolve mail.yieldscope.d3bu7.com in-cluster
+# to a stable address matching the Let's Encrypt certificate SAN.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail
+  namespace: yieldscope-mail
+  labels:
+    app: yieldscope-mail
+spec:
+  type: ClusterIP
+  clusterIP: 10.43.250.25
+  selector:
+    app: yieldscope-mail
+  ports:
+    - name: smtp
+      port: 25
+      targetPort: smtp
+    - name: submission
+      port: 587
+      targetPort: submission
+    - name: submissione
+      port: 465
+      targetPort: submissione
+    - name: imap
+      port: 143
+      targetPort: imap
+    - name: imaps
+      port: 993
+      targetPort: imaps
+---
+# Optional external wire (NodePorts). WAN :25/:587 already forward to li-mail;
+# use these only for LAN tests or a dedicated edge DNAT later.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail-wire
+  namespace: yieldscope-mail
+  labels:
+    app: yieldscope-mail
+spec:
+  type: NodePort
+  selector:
+    app: yieldscope-mail
+  ports:
+    - name: smtp
+      port: 25
+      targetPort: smtp
+      nodePort: 30625
+    - name: submission
+      port: 587
+      targetPort: submission
+      nodePort: 30687
+    - name: imaps
+      port: 993
+      targetPort: imaps
+      nodePort: 30693
