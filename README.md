@@ -42,6 +42,10 @@ Open http://localhost:3000 → Register/Sign in → Connect → Dashboard → At
 Required for app access: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `web/.env.local`.
 Optional: Turnstile keys (login bot check), `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for WalletConnect in the RainbowKit modal.
 
+Supabase redirect URLs (Auth → URL Configuration):
+- `http://localhost:3000/auth/callback` (dev)
+- `https://yieldscope.d3bu7.com/auth/callback` (prod)
+
 ## Auth model
 
 - **Account:** Supabase email/password at `/login` and `/register`. Registration requires email confirmation (Supabase Dashboard → Auth → confirm email). Cloudflare Turnstile protects `/login` only (env-configurable).
