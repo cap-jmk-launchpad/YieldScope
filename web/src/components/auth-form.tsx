@@ -4,24 +4,24 @@ import { Turnstile } from "@marsidev/react-turnstile";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { authCallbackErrorMessage, isEmailNotConfirmed } from "@/lib/auth/messages";
+import { authCallbackRedirect } from "@/lib/auth/redirect";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 type Mode = "login" | "register";
-
-function isEmailNotConfirmed(message: string): boolean {
-  return /email not confirmed/i.test(message);
-}
 
 export function AuthForm({ mode }: { mode: Mode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/app";
+  const callbackError = authCallbackErrorMessage(searchParams.get("error"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const displayError = error ?? callbackError;
 
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const requireTurnstile = mode === "login" && Boolean(siteKey);
@@ -82,7 +82,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
 
       const emailRedirectTo =
         typeof window !== "undefined"
-          ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
+          ? authCallbackRedirect(next, window.location.origin)
           : undefined;
 
       const { data, error: authError } = await supabase.auth.signUp({
@@ -147,6 +147,12 @@ export function AuthForm({ mode }: { mode: Mode }) {
         />
       </label>
 
+      {mode === "login" ? (
+        <p className="auth-forgot">
+          <Link href="/forgot-password">Forgot password?</Link>
+        </p>
+      ) : null}
+
       {requireTurnstile ? (
         <div className="turnstile">
           <Turnstile
@@ -164,7 +170,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
         </p>
       ) : null}
 
-      {error ? <p className="err">{error}</p> : null}
+      {displayError ? <p className="err">{displayError}</p> : null}
       {info ? <p className="ok">{info}</p> : null}
 
       <button type="submit" className="btn-primary" disabled={busy || !configured}>

@@ -83,5 +83,9 @@ function isApiProtected(pathname: string): boolean {
 }
 
 function isAuthPage(pathname: string): boolean {
-  return pathname === "/login" || pathname === "/register";
+  return (
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname === "/forgot-password"
+  );
 }

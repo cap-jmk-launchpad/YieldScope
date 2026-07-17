@@ -11,6 +11,8 @@ export const config = {
     "/app/:path*",
     "/login",
     "/register",
+    "/forgot-password",
+    "/auth/reset-password",
     "/api/sync",
     "/api/sync/:path*",
     "/api/checkpoint",

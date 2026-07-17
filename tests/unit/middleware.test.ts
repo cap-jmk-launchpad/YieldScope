@@ -135,6 +135,47 @@ describe("supabase middleware updateSession", () => {
     expect(res.headers.get("location")).toContain("/app");
   });
 
+  it("redirects authenticated users away from forgot-password", async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon";
+    vi.doMock("@supabase/ssr", () => ({
+      createServerClient: () => ({
+        auth: {
+          getUser: async () => ({
+            data: { user: { id: "u1", email: "a@b.c" } },
+          }),
+        },
+      }),
+    }));
+    vi.resetModules();
+    const { updateSession } = await import(
+      "../../web/src/lib/supabase/middleware"
+    );
+    const res = await updateSession(makeReq("http://localhost/forgot-password"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/app");
+  });
+
+  it("allows authenticated access to reset-password (recovery session)", async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon";
+    vi.doMock("@supabase/ssr", () => ({
+      createServerClient: () => ({
+        auth: {
+          getUser: async () => ({
+            data: { user: { id: "u1", email: "a@b.c" } },
+          }),
+        },
+      }),
+    }));
+    vi.resetModules();
+    const { updateSession } = await import(
+      "../../web/src/lib/supabase/middleware"
+    );
+    const res = await updateSession(makeReq("http://localhost/auth/reset-password"));
+    expect(res.status).toBe(200);
+  });
+
   it("allows authenticated access to /app", async () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon";
