@@ -1,0 +1,109 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+  Upsert DNS A records for YieldScope Supabase on d3bu7.com via IONOS API.
+.DESCRIPTION
+  Loads IONOS_API_KEY + IONOS_API_SECRET from Obsevia/klaut/majico .env.local (never commit).
+#>
+param(
+  [string]$Zone = "d3bu7.com",
+  [string]$EdgeIp = "77.23.124.82",
+  [int]$Ttl = 300,
+  [switch]$DryRun
+)
+
+$ErrorActionPreference = "Stop"
+
+function Get-EnvValue([string]$File, [string]$Key) {
+  if (-not (Test-Path $File)) { return $null }
+  foreach ($line in Get-Content $File -Encoding UTF8) {
+    if ($line -match "^\s*#") { continue }
+    if ($line -match "^\s*$([regex]::Escape($Key))\s*=\s*(.*)\s*$") {
+      return $Matches[1].Trim().Trim('"').Trim("'")
+    }
+  }
+  return $null
+}
+
+$candidates = @(
+  (Join-Path $env:USERPROFILE "Documents\Programming\Obsevia\.env.local"),
+  (Join-Path $env:USERPROFILE "Documents\Programming\Obsevia\.env"),
+  (Join-Path $env:USERPROFILE "Documents\Programming\klaut.pro\.env.local"),
+  (Join-Path $env:USERPROFILE "Documents\Programming\majico\majico.xyz\.env.local")
+)
+
+$apiKey = $env:IONOS_API_KEY
+$apiSecret = $env:IONOS_API_SECRET
+if (-not $apiKey -or -not $apiSecret) {
+  foreach ($f in $candidates) {
+    $k = Get-EnvValue $f "IONOS_API_KEY"
+    $s = Get-EnvValue $f "IONOS_API_SECRET"
+    if ($k -and $s) {
+      $apiKey = $k
+      $apiSecret = $s
+      Write-Host "Loaded IONOS credentials from $f"
+      break
+    }
+    # Combined form
+    $combined = Get-EnvValue $f "IONOS_API_KEY"
+    if ($combined -match '\.' -and -not $s) {
+      $apiKey = $combined
+      $apiSecret = $null
+      Write-Host "Loaded combined IONOS_API_KEY from $f"
+      break
+    }
+  }
+}
+
+if (-not $apiKey) { throw "IONOS_API_KEY missing (checked Obsevia/klaut/majico .env files)" }
+$xApiKey = if ($apiSecret) { "$apiKey.$apiSecret" } else { $apiKey }
+
+$headers = @{
+  "X-API-Key"    = $xApiKey
+  "Accept"       = "application/json"
+  "Content-Type" = "application/json"
+}
+
+function Invoke-Ionos([string]$Method, [string]$Path, [object]$Body = $null) {
+  $uri = "https://api.hosting.ionos.com/dns/v1$Path"
+  if ($DryRun) {
+    Write-Host "[dry-run] $Method $uri"
+    if ($Body) { Write-Host ($Body | ConvertTo-Json -Compress -Depth 5) }
+    return $null
+  }
+  if ($Body) {
+    $json = ConvertTo-Json -InputObject $Body -Depth 5 -Compress
+    return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers -Body $json
+  }
+  return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers
+}
+
+function Ensure-Record([string]$ZoneId, [string]$Name, [string]$Type, [string]$Content, [int]$Ttl = 3600) {
+  $zoneDetail = Invoke-Ionos GET "/zones/$ZoneId"
+  $existing = @($zoneDetail.records) | Where-Object { $_.name -eq $Name -and $_.type -eq $Type }
+  foreach ($rec in $existing) {
+    if ($rec.content -eq $Content) {
+      Write-Host "keep $Type $Name -> $Content"
+      return
+    }
+    Write-Host "delete $Type $Name id=$($rec.id) content=$($rec.content)"
+    try { Invoke-Ionos DELETE "/zones/$ZoneId/records/$($rec.id)" | Out-Null } catch {
+      Write-Host "warn: delete failed: $_"
+    }
+  }
+  Write-Host "create $Type $Name -> $Content"
+  Invoke-Ionos POST "/zones/$ZoneId/records" @(
+    @{ name = $Name; type = $Type; content = $Content; ttl = $Ttl; disabled = $false }
+  ) | Out-Null
+}
+
+$zones = Invoke-Ionos GET "/zones"
+$zoneObj = $zones | Where-Object { $_.name -eq $Zone } | Select-Object -First 1
+if (-not $zoneObj) { throw "Zone $Zone not found" }
+$zoneId = $zoneObj.id
+
+Ensure-Record $zoneId "supabase.yieldscope.$Zone" "A" $EdgeIp $Ttl
+# Keep app host present
+Ensure-Record $zoneId "yieldscope.$Zone" "A" $EdgeIp $Ttl
+
+Write-Host "OK: DNS for supabase.yieldscope.$Zone + yieldscope.$Zone -> $EdgeIp"

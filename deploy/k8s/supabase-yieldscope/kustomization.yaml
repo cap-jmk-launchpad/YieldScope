@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: supabase-yieldscope
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: yieldscope-supabase-kong-config
+    files:
+      - config/kong.yml
+      - config/kong-entrypoint.sh
+  - name: yieldscope-supabase-migrate-scripts
+    files:
+      - scripts/migrate.sh
+  - name: yieldscope-supabase-migrations
+    files:
+      - migrations/202607160001_earn_ledger.sql
+      - migrations/202607160002_auth_profiles.sql
+      - migrations/202607160003_sync_analytics.sql
+      - migrations/202607160004_lunc_source.sql
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  # secret: deploy/scripts/k8s-yieldscope-supabase-secret.sh (never commit)
+  - postgres-statefulset.yaml
+  - postgres-service.yaml
+  - auth-deployment.yaml
+  - rest-deployment.yaml
+  - meta-deployment.yaml
+  - studio-deployment.yaml
+  - kong-deployment.yaml
+  - kong-service.yaml
+  - migrate-job.yaml

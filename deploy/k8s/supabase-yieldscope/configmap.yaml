@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yieldscope-supabase-config
+data:
+  SUPABASE_NAMESPACE: supabase-yieldscope
+  SUPABASE_PUBLIC_URL: https://supabase.yieldscope.d3bu7.com
+  API_EXTERNAL_URL: https://supabase.yieldscope.d3bu7.com
+  SITE_URL: https://yieldscope.d3bu7.com
+  GOTRUE_JWT_ISSUER: https://supabase.yieldscope.d3bu7.com/auth/v1
+  GOTRUE_URI_ALLOW_LIST: "https://yieldscope.d3bu7.com/**,http://localhost:3000/**,http://127.0.0.1:3000/**"
+  GOTRUE_MAILER_EXTERNAL_HOSTS: "supabase.yieldscope.d3bu7.com,yieldscope.d3bu7.com"
+  STUDIO_DEFAULT_ORGANIZATION: YieldScope
+  STUDIO_DEFAULT_PROJECT: YieldScope

@@ -14,7 +14,7 @@ data:
   NEXT_PUBLIC_MONAD_RPC_URL: "https://testnet-rpc.monad.xyz"
   NEXT_PUBLIC_CHECKPOINT_ADDRESS: "0x0000000000000000000000000000000000000000"
   USE_FIXTURE_DEMO: "1"
-  NEXT_PUBLIC_SUPABASE_URL: "https://supabase.majico.d3bu7.com"
+  NEXT_PUBLIC_SUPABASE_URL: "https://supabase.yieldscope.d3bu7.com"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -36,7 +36,8 @@ spec:
         app.kubernetes.io/name: yieldscope
     spec:
       nodeSelector:
-        kubernetes.io/hostname: engine
+        # Image currently imported on blackpearl k3s ctr (engine SSH image sync blocked).
+        kubernetes.io/hostname: blackpearl
       containers:
         - name: web
           image: ghcr.io/cap-jmk-real/yieldscope-web:latest

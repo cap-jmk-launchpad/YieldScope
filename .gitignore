@@ -11,6 +11,7 @@ contracts/broadcast/
 web/.env.local
 **/.env
 !**/.env.example
+deploy/env/
 
 # Next
 web/.next/
