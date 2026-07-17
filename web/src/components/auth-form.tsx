@@ -1,6 +1,5 @@
 "use client";
 
-import { Turnstile } from "@marsidev/react-turnstile";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
@@ -17,14 +16,10 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const callbackError = authCallbackErrorMessage(searchParams.get("error"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const displayError = error ?? callbackError;
-
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-  const requireTurnstile = mode === "login" && Boolean(siteKey);
   const configured = isSupabaseConfigured();
 
   async function onSubmit(e: FormEvent) {
@@ -39,26 +34,8 @@ export function AuthForm({ mode }: { mode: Mode }) {
       return;
     }
 
-    if (requireTurnstile && !turnstileToken) {
-      setError("Complete the bot check and try again.");
-      return;
-    }
-
     setBusy(true);
     try {
-      if (requireTurnstile) {
-        const verifyRes = await fetch("/api/auth/turnstile", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: turnstileToken }),
-        });
-        const verifyJson = (await verifyRes.json()) as { ok?: boolean; error?: string };
-        if (!verifyRes.ok || !verifyJson.ok) {
-          setError(verifyJson.error ?? "Bot check failed.");
-          return;
-        }
-      }
-
       const supabase = createClient();
       if (mode === "login") {
         const { error: authError } = await supabase.auth.signInWithPassword({
@@ -150,23 +127,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
       {mode === "login" ? (
         <p className="auth-forgot">
           <Link href="/forgot-password">Forgot password?</Link>
-        </p>
-      ) : null}
-
-      {requireTurnstile ? (
-        <div className="turnstile">
-          <Turnstile
-            siteKey={siteKey!}
-            onSuccess={setTurnstileToken}
-            onExpire={() => setTurnstileToken(null)}
-            options={{ theme: "dark" }}
-          />
-        </div>
-      ) : mode === "login" ? (
-        <p className="hint">
-          Bot protection idle — set{" "}
-          <code>NEXT_PUBLIC_TURNSTILE_SITE_KEY</code> +{" "}
-          <code>TURNSTILE_SECRET_KEY</code> for production.
         </p>
       ) : null}
 

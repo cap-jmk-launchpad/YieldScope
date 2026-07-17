@@ -40,7 +40,7 @@ pnpm --dir web dev
 Open http://localhost:3000 → Register/Sign in → Connect → Dashboard → Attest.
 
 Required for app access: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `web/.env.local`.
-Optional: Turnstile keys (login bot check), `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for WalletConnect in the RainbowKit modal.
+Optional: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for WalletConnect in the RainbowKit modal.
 
 Supabase redirect URLs (Auth → URL Configuration):
 - `http://localhost:3000/auth/callback` (dev)
@@ -50,7 +50,7 @@ Supabase redirect URLs (Auth → URL Configuration):
 
 ## Auth model
 
-- **Account:** Supabase email/password at `/login`, `/register`, and `/forgot-password` → `/auth/reset-password`. Registration requires email confirmation (Supabase Dashboard → Auth → confirm email). Password reset uses the same `/auth/callback` PKCE exchange. Cloudflare Turnstile protects `/login` only (env-configurable).
+- **Account:** Supabase email/password at `/login`, `/register`, and `/forgot-password` → `/auth/reset-password`. Registration requires email confirmation (Supabase Dashboard → Auth → confirm email) — that link is the only bot gate (no captcha). Password reset uses the same `/auth/callback` PKCE exchange.
 - **CEX:** Connect UI is **read-only API keys** for Binance and OKX (sessionStorage). Server sync also accepts env vars for smoke (`BINANCE_*`, `OKX_*`).
 - **Wallet:** RainbowKit + wagmi on Monad testnet (chain `10143`) for stake reads and attestation.
 - **Fail closed:** `/app/*` requires a session; `/api/sync` and `/api/checkpoint/*` return 401 when unauthenticated. Broken adapters never invent earn rows.

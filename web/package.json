@@ -10,7 +10,6 @@
     "test": "cd .. && pnpm test"
   },
   "dependencies": {
-    "@marsidev/react-turnstile": "^1.5.3",
     "@rainbow-me/rainbowkit": "^2.2.11",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.5",
