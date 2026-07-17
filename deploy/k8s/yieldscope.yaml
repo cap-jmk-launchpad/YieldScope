@@ -41,6 +41,8 @@ spec:
         - name: web
           image: ghcr.io/cap-jmk-real/yieldscope-web:latest
           imagePullPolicy: Never
+          command: ["node"]
+          args: ["web/server.js"]
           ports:
             - containerPort: 3000
               name: http
