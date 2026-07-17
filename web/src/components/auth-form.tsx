@@ -8,6 +8,10 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 type Mode = "login" | "register";
 
+function isEmailNotConfirmed(message: string): boolean {
+  return /email not confirmed/i.test(message);
+}
+
 export function AuthForm({ mode }: { mode: Mode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -20,6 +24,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [busy, setBusy] = useState(false);
 
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const requireTurnstile = mode === "login" && Boolean(siteKey);
   const configured = isSupabaseConfigured();
 
   async function onSubmit(e: FormEvent) {
@@ -34,22 +39,24 @@ export function AuthForm({ mode }: { mode: Mode }) {
       return;
     }
 
-    if (siteKey && !turnstileToken) {
+    if (requireTurnstile && !turnstileToken) {
       setError("Complete the bot check and try again.");
       return;
     }
 
     setBusy(true);
     try {
-      const verifyRes = await fetch("/api/auth/turnstile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: turnstileToken }),
-      });
-      const verifyJson = (await verifyRes.json()) as { ok?: boolean; error?: string };
-      if (!verifyRes.ok || !verifyJson.ok) {
-        setError(verifyJson.error ?? "Bot check failed.");
-        return;
+      if (requireTurnstile) {
+        const verifyRes = await fetch("/api/auth/turnstile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: turnstileToken }),
+        });
+        const verifyJson = (await verifyRes.json()) as { ok?: boolean; error?: string };
+        if (!verifyRes.ok || !verifyJson.ok) {
+          setError(verifyJson.error ?? "Bot check failed.");
+          return;
+        }
       }
 
       const supabase = createClient();
@@ -59,6 +66,12 @@ export function AuthForm({ mode }: { mode: Mode }) {
           password,
         });
         if (authError) {
+          if (isEmailNotConfirmed(authError.message)) {
+            setInfo(
+              "Confirm your email first — check your inbox for the signup link, then sign in again.",
+            );
+            return;
+          }
           setError(authError.message);
           return;
         }
@@ -67,15 +80,15 @@ export function AuthForm({ mode }: { mode: Mode }) {
         return;
       }
 
+      const emailRedirectTo =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
+          : undefined;
+
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          emailRedirectTo:
-            typeof window !== "undefined"
-              ? `${window.location.origin}/app`
-              : undefined,
-        },
+        options: { emailRedirectTo },
       });
       if (authError) {
         setError(authError.message);
@@ -86,7 +99,9 @@ export function AuthForm({ mode }: { mode: Mode }) {
         router.refresh();
         return;
       }
-      setInfo("Check your email to confirm your account, then sign in.");
+      setInfo(
+        `We sent a confirmation link to ${email}. Open it to activate your account, then sign in.`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Auth failed");
     } finally {
@@ -100,7 +115,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
       <p className="lede">
         {mode === "login"
           ? "Sign in to sync earn sources and attest checkpoints."
-          : "Register with email and password. Read-only CEX keys come later in Connect."}
+          : "Register with email and password. We email a confirmation link before your account is active."}
       </p>
 
       {!configured ? (
@@ -132,22 +147,22 @@ export function AuthForm({ mode }: { mode: Mode }) {
         />
       </label>
 
-      {siteKey ? (
+      {requireTurnstile ? (
         <div className="turnstile">
           <Turnstile
-            siteKey={siteKey}
+            siteKey={siteKey!}
             onSuccess={setTurnstileToken}
             onExpire={() => setTurnstileToken(null)}
             options={{ theme: "dark" }}
           />
         </div>
-      ) : (
+      ) : mode === "login" ? (
         <p className="hint">
           Bot protection idle — set{" "}
           <code>NEXT_PUBLIC_TURNSTILE_SITE_KEY</code> +{" "}
           <code>TURNSTILE_SECRET_KEY</code> for production.
         </p>
-      )}
+      ) : null}
 
       {error ? <p className="err">{error}</p> : null}
       {info ? <p className="ok">{info}</p> : null}

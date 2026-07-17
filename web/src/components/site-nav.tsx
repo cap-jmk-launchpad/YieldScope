@@ -52,7 +52,10 @@ export function SiteNav() {
             Sign out
           </button>
         ) : (
-          <Link href="/login">Sign in</Link>
+          <>
+            <Link href="/register">Register</Link>
+            <Link href="/login">Sign in</Link>
+          </>
         )}
       </div>
     </nav>

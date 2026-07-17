@@ -11,6 +11,7 @@ export default function HomePage() {
         <nav className="landing-top-nav">
           <a href="#how">How</a>
           <a href="#sources">Sources</a>
+          <Link href="/register">Register</Link>
           <Link href="/login">Sign in</Link>
         </nav>
       </header>

@@ -23,7 +23,7 @@ No Zerion sprawl. No tax engine. No APY farm browser.
 
 ## Auth
 
-1. **Email/password** via Supabase Auth (`/login`, `/register`) with Turnstile bot protection.
+1. **Email/password** via Supabase Auth (`/login`, `/register`). Registration requires email confirmation; Turnstile bot check on sign-in only.
 2. **Read-only API keys** for Binance / OKX in Connect UI (session-scoped).
 3. Wallet connect (RainbowKit) for Monad stake reads and attestation.
 4. Paste Terra Classic `terra1…` address (or explorer link) for LUNC stake rewards.
