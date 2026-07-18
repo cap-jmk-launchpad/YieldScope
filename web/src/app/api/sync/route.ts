@@ -77,7 +77,9 @@ export async function POST(req: Request) {
       results.lunc_stake = await syncLuncStake(storedLunc, ctx);
     }
 
-    const ledger = await loadDbLedger(gate.user.id);
+    // Summary only — avoid re-shipping 10k+ events after every sync chunk.
+    // Dashboard refreshes the events page + chart series once sync finishes.
+    const ledger = await loadDbLedger(gate.user.id, { eventsMode: "none" });
     const failed = Object.values(results).some(
       (r) =>
         r &&

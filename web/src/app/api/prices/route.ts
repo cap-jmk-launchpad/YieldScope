@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
-import { loadDbLedger } from "@/lib/ledger-db";
+import { loadUserEarnAssets } from "@/lib/ledger-db";
 import { TRACKED_SYMBOLS } from "@/lib/prices/binance-klines";
 import {
   auditPriceCoverage,
@@ -12,6 +12,9 @@ import { loadLatestCloses } from "@/lib/prices/price-db";
  * GET /api/prices
  * Latest closes from Postgres ohlcv for dashboard conversion.
  * Includes TRACKED_SYMBOLS plus USDT pairs for the user's imported earn assets.
+ *
+ * Uses earn_aggregates_by_asset (not full earn_events) so large ledgers do not
+ * block price hydration.
  */
 export async function GET() {
   const gate = await requireUser();
@@ -20,8 +23,7 @@ export async function GET() {
   try {
     let userAssets: string[] = [];
     try {
-      const ledger = await loadDbLedger(gate.user.id);
-      userAssets = (ledger.aggregates.byAsset ?? []).map((a) => a.asset);
+      userAssets = await loadUserEarnAssets(gate.user.id);
     } catch {
       userAssets = [];
     }

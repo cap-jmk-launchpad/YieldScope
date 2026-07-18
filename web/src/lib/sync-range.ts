@@ -295,13 +295,44 @@ export function cexCoverageRefreshHint(
   if (cex.length < 50) return null;
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
-    for (const e of cex) {
-      const t = Date.parse(e.earnedAt);
-      if (!Number.isFinite(t)) continue;
-      if (t < min) min = t;
-      if (t > max) max = t;
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  for (const e of cex) {
+    const t = Date.parse(e.earnedAt);
+    if (!Number.isFinite(t)) continue;
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  const spanDays = (max - min) / DAY_MS;
+  if (spanDays <= 3) {
+    return "Exchange history only spans a few days in the ledger. Use “Re-download full history” or sync a wider Date range.";
+  }
+  return null;
+}
+
+/**
+ * Same coverage hint from per-source aggregates (no need to load event rows).
+ */
+export function cexCoverageRefreshHintFromAggregates(
+  bySource: Array<{
+    source: string;
+    eventCount: number;
+    firstEarnedAt?: string | null;
+    lastEarnedAt?: string | null;
+  }>,
+): string | null {
+  let eventCount = 0;
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const row of bySource) {
+    if (row.source !== "binance" && row.source !== "okx") continue;
+    eventCount += row.eventCount;
+    const first = row.firstEarnedAt ? Date.parse(row.firstEarnedAt) : NaN;
+    const last = row.lastEarnedAt ? Date.parse(row.lastEarnedAt) : NaN;
+    if (Number.isFinite(first) && first < min) min = first;
+    if (Number.isFinite(last) && last > max) max = last;
+  }
+  if (eventCount < 50) return null;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
   const spanDays = (max - min) / DAY_MS;
   if (spanDays <= 3) {
     return "Exchange history only spans a few days in the ledger. Use “Re-download full history” or sync a wider Date range.";

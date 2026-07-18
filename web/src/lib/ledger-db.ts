@@ -38,6 +38,7 @@ export interface LedgerAggregates {
     source: SourceId;
     eventCount: number;
     totalAmount: string;
+    firstEarnedAt: string | null;
     lastEarnedAt: string | null;
   }>;
   byAsset: Array<{
@@ -48,8 +49,30 @@ export interface LedgerAggregates {
   }>;
 }
 
+/** How earn_events are included in a ledger snapshot. */
+export type LedgerEventsMode = "all" | "page" | "none" | "chart";
+
+export interface LoadDbLedgerOptions {
+  /**
+   * - `all` — page through every event (checkpoint / legacy). Default for
+   *   callers that omit options so merkle/checkpoint stay correct.
+   * - `page` — one page for the events table (dashboard TTI).
+   * - `none` — aggregates/sources only (prices, sync response).
+   * - `chart` — UTC-day × asset series from earn_daily_by_asset (deferred charts).
+   */
+  eventsMode?: LedgerEventsMode;
+  /** 1-based page when eventsMode is `page`. */
+  eventsPage?: number;
+  eventsPageSize?: number;
+}
+
 export interface DbLedgerSnapshot {
   events: EarnEvent[];
+  /** Total earn_events for the profile (from aggregates). */
+  eventsTotal: number;
+  eventsMode: LedgerEventsMode;
+  eventsPage?: number;
+  eventsPageSize?: number;
   sources: Record<
     SourceId,
     { status: SourceStatus; error?: string; eventCount: number; lastSyncedAt?: string }
@@ -58,6 +81,9 @@ export interface DbLedgerSnapshot {
   wallet?: { address: string; chainId: number; lastSeenAt: string } | null;
   updatedAt: string;
 }
+
+export const DEFAULT_LEDGER_EVENTS_PAGE_SIZE = 25;
+export const MAX_LEDGER_EVENTS_PAGE_SIZE = 500;
 
 export async function ensureProfileId(userId: string, email?: string | null): Promise<string> {
   const admin = createAdminClient();
@@ -258,10 +284,151 @@ export async function getSourceHighWaterMs(
   return Number.isFinite(ms) ? ms : null;
 }
 
-export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
+function emptySources(): DbLedgerSnapshot["sources"] {
+  return {
+    binance: { status: "not_connected", eventCount: 0 },
+    okx: { status: "not_connected", eventCount: 0 },
+    monad_stake: { status: "not_connected", eventCount: 0 },
+    lunc_stake: { status: "not_connected", eventCount: 0 },
+  };
+}
+
+function emptySnapshot(mode: LedgerEventsMode): DbLedgerSnapshot {
+  return {
+    events: [],
+    eventsTotal: 0,
+    eventsMode: mode,
+    sources: emptySources(),
+    aggregates: { bySource: [], byAsset: [] },
+    wallet: null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function mapEventRow(row: Record<string, unknown>, slim: boolean): EarnEvent {
+  const event: EarnEvent = {
+    id: String(row.id ?? ""),
+    source: row.source as SourceId,
+    asset: String(row.asset),
+    amount: String(row.amount),
+    earnedAt: String(row.earned_at),
+  };
+  if (!slim) {
+    event.rawType = (row.raw_type as string | null) ?? undefined;
+    event.meta = (row.meta as Record<string, unknown>) ?? undefined;
+  }
+  return event;
+}
+
+function clampEventsPageSize(size: number | undefined): number {
+  if (size == null || !Number.isFinite(size) || size < 1) {
+    return DEFAULT_LEDGER_EVENTS_PAGE_SIZE;
+  }
+  return Math.min(Math.floor(size), MAX_LEDGER_EVENTS_PAGE_SIZE);
+}
+
+function clampEventsPage(page: number | undefined): number {
+  if (page == null || !Number.isFinite(page) || page < 1) return 1;
+  return Math.floor(page);
+}
+
+async function loadAllEarnEvents(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+): Promise<EarnEvent[]> {
+  // Page through all earn events. A hard 500-row cap previously made multi-year
+  // history look like "only a couple of days" in the UI/charts.
+  const PAGE = 1000;
+  const MAX_EVENTS = 100_000;
+  const events: EarnEvent[] = [];
+  for (let from = 0; from < MAX_EVENTS; from += PAGE) {
+    const to = Math.min(from + PAGE - 1, MAX_EVENTS - 1);
+    const { data, error } = await admin
+      .from("earn_events")
+      .select("id,source,asset,amount,earned_at,raw_type,meta")
+      .eq("profile_id", profileId)
+      .order("earned_at", { ascending: false })
+      .range(from, to);
+    if (error) throw new LedgerPersistError(error.message);
+    const batch = data ?? [];
+    for (const row of batch) {
+      events.push(mapEventRow(row as Record<string, unknown>, false));
+    }
+    if (batch.length < PAGE) break;
+  }
+  return events;
+}
+
+async function loadEarnEventsPage(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+  page: number,
+  pageSize: number,
+): Promise<EarnEvent[]> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+  // Table list omits meta (can be large on CEX reward rows).
+  const { data, error } = await admin
+    .from("earn_events")
+    .select("id,source,asset,amount,earned_at,raw_type")
+    .eq("profile_id", profileId)
+    .order("earned_at", { ascending: false })
+    .range(from, to);
+  if (error) throw new LedgerPersistError(error.message);
+  return (data ?? []).map((row) =>
+    mapEventRow(row as Record<string, unknown>, true),
+  );
+}
+
+/**
+ * Chart series: one synthetic event per (source, asset, UTC day) from the
+ * daily aggregate view — orders of magnitude smaller than raw earn_events.
+ */
+async function loadChartSeriesEvents(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+): Promise<EarnEvent[]> {
+  const PAGE = 1000;
+  const MAX_ROWS = 50_000;
+  const events: EarnEvent[] = [];
+  for (let from = 0; from < MAX_ROWS; from += PAGE) {
+    const to = Math.min(from + PAGE - 1, MAX_ROWS - 1);
+    const { data, error } = await admin
+      .from("earn_daily_by_asset")
+      .select("source,asset,day,total_amount")
+      .eq("profile_id", profileId)
+      .order("day", { ascending: true })
+      .range(from, to);
+    if (error) throw new LedgerPersistError(error.message);
+    const batch = data ?? [];
+    for (const row of batch) {
+      const day = String(row.day).slice(0, 10);
+      const source = row.source as SourceId;
+      const asset = String(row.asset);
+      events.push({
+        id: `daily:${source}:${asset}:${day}`,
+        source,
+        asset,
+        amount: String(row.total_amount ?? 0),
+        earnedAt: `${day}T00:00:00.000Z`,
+      });
+    }
+    if (batch.length < PAGE) break;
+  }
+  return events;
+}
+
+export async function loadDbLedger(
+  userId: string,
+  options: LoadDbLedgerOptions = {},
+): Promise<DbLedgerSnapshot> {
   if (!isAdminConfigured()) {
     throw new LedgerPersistError("Database not configured.");
   }
+  const eventsMode: LedgerEventsMode = options.eventsMode ?? "all";
+  const eventsPage = clampEventsPage(options.eventsPage);
+  const eventsPageSize = clampEventsPageSize(options.eventsPageSize);
+
   const admin = createAdminClient();
   const { data: profile, error: pErr } = await admin
     .from("profiles")
@@ -270,21 +437,13 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
     .maybeSingle();
   if (pErr) throw new LedgerPersistError(pErr.message);
 
-  const emptySources = (): DbLedgerSnapshot["sources"] => ({
-    binance: { status: "not_connected", eventCount: 0 },
-    okx: { status: "not_connected", eventCount: 0 },
-    monad_stake: { status: "not_connected", eventCount: 0 },
-    lunc_stake: { status: "not_connected", eventCount: 0 },
-  });
-
   if (!profile?.id) {
-    return {
-      events: [],
-      sources: emptySources(),
-      aggregates: { bySource: [], byAsset: [] },
-      wallet: null,
-      updatedAt: new Date().toISOString(),
-    };
+    const empty = emptySnapshot(eventsMode);
+    if (eventsMode === "page") {
+      empty.eventsPage = eventsPage;
+      empty.eventsPageSize = eventsPageSize;
+    }
+    return empty;
   }
 
   const profileId = profile.id as string;
@@ -296,7 +455,7 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
       .eq("profile_id", profileId),
     admin
       .from("earn_aggregates_by_source")
-      .select("source,event_count,total_amount,last_earned_at")
+      .select("source,event_count,total_amount,first_earned_at,last_earned_at")
       .eq("profile_id", profileId),
     admin
       .from("earn_aggregates_by_asset")
@@ -315,35 +474,6 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
     if (res.error) throw new LedgerPersistError(res.error.message);
   }
   if (walletRes.error) throw new LedgerPersistError(walletRes.error.message);
-
-  // Page through all earn events. A hard 500-row cap previously made multi-year
-  // history look like "only a couple of days" in the UI/charts.
-  const PAGE = 1000;
-  const MAX_EVENTS = 100_000;
-  const events: EarnEvent[] = [];
-  for (let from = 0; from < MAX_EVENTS; from += PAGE) {
-    const to = Math.min(from + PAGE - 1, MAX_EVENTS - 1);
-    const { data, error } = await admin
-      .from("earn_events")
-      .select("id,source,asset,amount,earned_at,raw_type,meta")
-      .eq("profile_id", profileId)
-      .order("earned_at", { ascending: false })
-      .range(from, to);
-    if (error) throw new LedgerPersistError(error.message);
-    const batch = data ?? [];
-    for (const row of batch) {
-      events.push({
-        id: row.id as string,
-        source: row.source as SourceId,
-        asset: row.asset as string,
-        amount: String(row.amount),
-        earnedAt: row.earned_at as string,
-        rawType: (row.raw_type as string | null) ?? undefined,
-        meta: (row.meta as Record<string, unknown>) ?? undefined,
-      });
-    }
-    if (batch.length < PAGE) break;
-  }
 
   const sources = emptySources();
   for (const row of sourcesRes.data ?? []) {
@@ -373,6 +503,7 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
       source: r.source as SourceId,
       eventCount: Number(r.event_count),
       totalAmount: String(r.total_amount ?? 0),
+      firstEarnedAt: (r.first_earned_at as string | null) ?? null,
       lastEarnedAt: (r.last_earned_at as string | null) ?? null,
     })),
     byAsset: (byAssetRes.data ?? []).map((r) => ({
@@ -383,6 +514,25 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
     })),
   };
 
+  const eventsTotal = aggregates.bySource.reduce(
+    (sum, row) => sum + row.eventCount,
+    0,
+  );
+
+  let events: EarnEvent[] = [];
+  if (eventsMode === "all") {
+    events = await loadAllEarnEvents(admin, profileId);
+  } else if (eventsMode === "page") {
+    events = await loadEarnEventsPage(
+      admin,
+      profileId,
+      eventsPage,
+      eventsPageSize,
+    );
+  } else if (eventsMode === "chart") {
+    events = await loadChartSeriesEvents(admin, profileId);
+  }
+
   const wallet = walletRes.data
     ? {
         address: walletRes.data.address as string,
@@ -391,13 +541,55 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
       }
     : null;
 
-  return {
+  const snap: DbLedgerSnapshot = {
     events,
+    eventsTotal,
+    eventsMode,
     sources,
     aggregates,
     wallet,
     updatedAt: new Date().toISOString(),
   };
+  if (eventsMode === "page") {
+    snap.eventsPage = eventsPage;
+    snap.eventsPageSize = eventsPageSize;
+  }
+  return snap;
+}
+
+/**
+ * Distinct earn assets for one user — cheap aggregates path for /api/prices
+ * (avoids loading the full event history just to discover symbols).
+ */
+export async function loadUserEarnAssets(userId: string): Promise<string[]> {
+  if (!isAdminConfigured()) return [];
+
+  const admin = createAdminClient();
+  const { data: profile, error: pErr } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (pErr) throw new LedgerPersistError(pErr.message);
+  if (!profile?.id) return [];
+
+  const { data, error } = await admin
+    .from("earn_aggregates_by_asset")
+    .select("asset")
+    .eq("profile_id", profile.id);
+  if (error) {
+    throw new LedgerPersistError(
+      `Failed listing user earn assets: ${error.message}`,
+    );
+  }
+  const set = new Set<string>();
+  for (const row of data ?? []) {
+    const a = String(row.asset ?? "")
+      .trim()
+      .toUpperCase();
+    if (a) set.add(a);
+  }
+  return [...set].sort();
 }
 
 /**

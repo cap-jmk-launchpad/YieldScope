@@ -13,7 +13,7 @@ import {
 import type { SyncRange, SyncRangeMode } from "@/lib/sync-range";
 import {
   buildSyncRangeFromUi,
-  cexCoverageRefreshHint,
+  cexCoverageRefreshHintFromAggregates,
   ledgerEventsForDisplay,
   resolveSyncRange,
   syncRangesForSource,
@@ -36,6 +36,8 @@ import {
   paginateItems,
   parsePageSize,
   savePageSizeToStorage,
+  totalPagesFor,
+  clampPage,
   type PageSizeOption,
 } from "@/lib/table-pagination";
 import {
@@ -52,6 +54,10 @@ import {
 
 interface LedgerResponse {
   events: EarnEvent[];
+  eventsTotal?: number;
+  eventsMode?: string;
+  eventsPage?: number;
+  eventsPageSize?: number;
   sources: Record<
     SourceId,
     { status: SourceStatus; error?: string; eventCount: number; lastSyncedAt?: string }
@@ -61,6 +67,7 @@ interface LedgerResponse {
       source: SourceId;
       eventCount: number;
       totalAmount: string;
+      firstEarnedAt?: string | null;
       lastEarnedAt: string | null;
     }>;
     byAsset: Array<{
@@ -146,6 +153,8 @@ export function Dashboard({
   convertAmount: convertAmountProp,
 }: DashboardDisplayCurrency = {}) {
   const [ledger, setLedger] = useState<LedgerResponse | null>(null);
+  const [chartEvents, setChartEvents] = useState<EarnEvent[]>([]);
+  const [chartsLoading, setChartsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [syncingSources, setSyncingSources] = useState<SourceId[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -161,7 +170,9 @@ export function Dashboard({
   const [assetsPage, setAssetsPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(DEFAULT_PAGE_SIZE);
   const [pageSizeReady, setPageSizeReady] = useState(false);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const syncGen = useRef(0);
+  const eventsFetchGen = useRef(0);
   const { address, chainId } = useAccount();
 
   useEffect(() => {
@@ -196,12 +207,6 @@ export function Dashboard({
     savePageSizeToStorage(pageSize, window.localStorage);
   }, [pageSize, pageSizeReady]);
 
-  const handlePageSizeChange = useCallback((size: PageSizeOption) => {
-    setPageSize(parsePageSize(size));
-    setEventsPage(1);
-    setAssetsPage(1);
-  }, []);
-
   const refreshRates = useCallback(async () => {
     try {
       const res = await fetch("/api/prices");
@@ -229,24 +234,101 @@ export function Dashboard({
     }
   }, []);
 
+  const refreshCharts = useCallback(async () => {
+    setChartsLoading(true);
+    try {
+      const res = await fetch("/api/ledger?eventsMode=chart");
+      const json = (await res.json()) as LedgerResponse;
+      if (res.ok) {
+        setChartEvents(json.events ?? []);
+      }
+    } catch {
+      /* charts are best-effort; table/totals already work from aggregates */
+    } finally {
+      setChartsLoading(false);
+    }
+  }, []);
+
+  const fetchEventsPage = useCallback(
+    async (page: number, size: PageSizeOption) => {
+      const gen = ++eventsFetchGen.current;
+      setEventsLoading(true);
+      try {
+        const qs = new URLSearchParams({
+          eventsMode: "page",
+          eventsPage: String(page),
+          eventsPageSize: String(size),
+        });
+        const res = await fetch(`/api/ledger?${qs}`);
+        const json = (await res.json()) as LedgerResponse;
+        if (gen !== eventsFetchGen.current) return;
+        if (!res.ok) {
+          setMessage(json.error ?? "Failed to load ledger");
+          return;
+        }
+        setLedger(json);
+      } catch (err) {
+        if (gen !== eventsFetchGen.current) return;
+        setMessage(err instanceof Error ? err.message : "Failed to load ledger");
+      } finally {
+        if (gen === eventsFetchGen.current) setEventsLoading(false);
+      }
+    },
+    [],
+  );
+
+  const handleEventsPageChange = useCallback(
+    (page: number) => {
+      setEventsPage(page);
+      void fetchEventsPage(page, pageSize);
+    },
+    [fetchEventsPage, pageSize],
+  );
+
+  // Re-bind page-size handler now that fetchEventsPage exists.
+  const handlePageSizeChange = useCallback(
+    (size: PageSizeOption) => {
+      const next = parsePageSize(size);
+      setPageSize(next);
+      setEventsPage(1);
+      setAssetsPage(1);
+      void fetchEventsPage(1, next);
+    },
+    [fetchEventsPage],
+  );
+
+  const pageSizeRef = useRef(pageSize);
+  pageSizeRef.current = pageSize;
+
   const refresh = useCallback(async () => {
-    const res = await fetch("/api/ledger");
+    const size = pageSizeRef.current;
+    const qs = new URLSearchParams({
+      eventsMode: "page",
+      eventsPage: "1",
+      eventsPageSize: String(size),
+    });
+    const res = await fetch(`/api/ledger?${qs}`);
     const json = (await res.json()) as LedgerResponse;
     setLedger(json);
     setEventsPage(1);
     setAssetsPage(1);
     if (!res.ok) {
       setMessage(json.error ?? "Failed to load ledger");
+    } else {
+      void refreshCharts();
     }
-  }, []);
+  }, [refreshCharts]);
 
+  // Initial load once localStorage page size is ready (avoids a 25→saved double fetch).
   useEffect(() => {
+    if (!pageSizeReady) return;
     void refresh();
     void refreshRates();
-  }, [refresh, refreshRates]);
+  }, [pageSizeReady, refresh, refreshRates]);
 
   // Recover visible sync state after refresh / navigation mid-sync.
   useEffect(() => {
+    if (!pageSizeReady) return;
     const session = readSyncSession();
     if (!session || !isSyncSessionFresh(session)) {
       clearSyncSession();
@@ -269,7 +351,7 @@ export function Dashboard({
       setSyncingSources([]);
       setMessage("Synced status refreshed.");
     })();
-  }, [refresh]);
+  }, [pageSizeReady, refresh]);
 
   async function syncOneSource(
     source: SourceId,
@@ -318,7 +400,19 @@ export function Dashboard({
     if (gen !== syncGen.current) return null;
 
     if (json.ledger) {
-      setLedger(json.ledger);
+      // Sync returns aggregates/sources only — keep the current events page.
+      setLedger((prev) => ({
+        ...json.ledger!,
+        events: prev?.events ?? [],
+        eventsTotal:
+          json.ledger!.eventsTotal ??
+          prev?.eventsTotal ??
+          prev?.events?.length ??
+          0,
+        eventsMode: prev?.eventsMode ?? "page",
+        eventsPage: prev?.eventsPage,
+        eventsPageSize: prev?.eventsPageSize,
+      }));
     }
 
     const result = json.results?.[source] ?? null;
@@ -425,6 +519,7 @@ export function Dashboard({
         );
       }
       if (forceFullRefresh) setForceFullRefresh(false);
+      await refresh();
       void refreshRates();
     } catch (err) {
       if (gen !== syncGen.current) return;
@@ -468,12 +563,19 @@ export function Dashboard({
   const syncOverview = formatSyncingOverview(syncingSources);
 
   const byAssetRows = ledger?.aggregates?.byAsset ?? [];
-  // Display = full DB ledger (sync range is not a client-side view filter).
+  // Server already returns the current events page (not the full history).
   const eventRows = ledgerEventsForDisplay(ledger?.events ?? []);
+  const eventsTotal =
+    ledger?.eventsTotal ??
+    (ledger?.aggregates?.bySource ?? []).reduce(
+      (sum, row) => sum + row.eventCount,
+      0,
+    );
 
   const coverageHint = useMemo(
-    () => cexCoverageRefreshHint(eventRows),
-    [eventRows],
+    () =>
+      cexCoverageRefreshHintFromAggregates(ledger?.aggregates?.bySource ?? []),
+    [ledger?.aggregates?.bySource],
   );
 
   const selectedWindowLabel = useMemo(() => {
@@ -490,10 +592,22 @@ export function Dashboard({
     () => paginateItems(byAssetRows, assetsPage, pageSize),
     [byAssetRows, assetsPage, pageSize],
   );
-  const eventsSlice = useMemo(
-    () => paginateItems(eventRows, eventsPage, pageSize),
-    [eventRows, eventsPage, pageSize],
-  );
+
+  const eventsSlice = useMemo(() => {
+    const total = eventsTotal;
+    const totalPages = totalPagesFor(total, pageSize);
+    const safePage = clampPage(eventsPage, totalPages);
+    const start = (safePage - 1) * pageSize;
+    return {
+      items: eventRows,
+      page: safePage,
+      pageSize,
+      total,
+      totalPages,
+      from: total === 0 ? 0 : start + 1,
+      to: start + eventRows.length,
+    };
+  }, [eventRows, eventsPage, pageSize, eventsTotal]);
 
   // Keep page in range when filters / sync shrink the list.
   useEffect(() => {
@@ -502,6 +616,8 @@ export function Dashboard({
   useEffect(() => {
     if (eventsPage !== eventsSlice.page) setEventsPage(eventsSlice.page);
   }, [eventsPage, eventsSlice.page]);
+
+  const chartRows = chartEvents.length > 0 ? chartEvents : eventRows;
 
   const coverageGaps = useMemo(() => {
     if (missingAssets.length > 0) return missingAssets;
@@ -716,10 +832,15 @@ export function Dashboard({
       </div>
 
       <EarningsCharts
-        events={eventRows}
+        events={chartRows}
         convertAmount={convertAmount}
         displayCurrency={chartDisplayCurrency}
       />
+      {chartsLoading ? (
+        <p className="msg" role="status">
+          Loading chart history…
+        </p>
+      ) : null}
 
       {byAssetRows.length > 0 ? (
         <div className="table-wrap">
@@ -842,17 +963,22 @@ export function Dashboard({
             )}
           </tbody>
         </table>
-        <TablePager
-          label="Events"
-          page={eventsSlice.page}
-          totalPages={eventsSlice.totalPages}
-          from={eventsSlice.from}
-          to={eventsSlice.to}
-          total={eventsSlice.total}
-          pageSize={pageSize}
-          onPageChange={setEventsPage}
-          onPageSizeChange={handlePageSizeChange}
-        />
+          <TablePager
+            label="Events"
+            page={eventsSlice.page}
+            totalPages={eventsSlice.totalPages}
+            from={eventsSlice.from}
+            to={eventsSlice.to}
+            total={eventsSlice.total}
+            pageSize={pageSize}
+            onPageChange={handleEventsPageChange}
+            onPageSizeChange={handlePageSizeChange}
+          />
+          {eventsLoading ? (
+            <p className="msg" role="status">
+              Loading events…
+            </p>
+          ) : null}
       </div>
     </div>
   );
@@ -869,7 +995,10 @@ function summarizeFromAggregates(
   if (byAsset.length === 0 && (ledger.events?.length ?? 0) === 0) {
     return "0 events · connect a source to begin";
   }
-  const n = byAsset.reduce((s, a) => s + a.eventCount, 0) || ledger.events.length;
+  const n =
+    byAsset.reduce((s, a) => s + a.eventCount, 0) ||
+    ledger.eventsTotal ||
+    ledger.events.length;
   if (bypassRates || Object.keys(rates).length === 0) {
     if (byAsset.length > 0) {
       const parts = byAsset

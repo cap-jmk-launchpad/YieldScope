@@ -4,6 +4,7 @@ import {
   SyncRangeError,
   buildSyncRangeFromUi,
   cexCoverageRefreshHint,
+  cexCoverageRefreshHintFromAggregates,
   cexEventsMatchWindow,
   chunkTimeRange,
   eventInWindow,
@@ -258,5 +259,33 @@ describe("sync-range", () => {
       ),
     ).toBe(false);
     expect(cexCoverageRefreshHint([])).toBeNull();
+  });
+
+  it("cexCoverageRefreshHintFromAggregates uses first/last earned", () => {
+    expect(
+      cexCoverageRefreshHintFromAggregates([
+        {
+          source: "binance",
+          eventCount: 100,
+          firstEarnedAt: "2024-07-01T00:00:00.000Z",
+          lastEarnedAt: "2024-07-02T00:00:00.000Z",
+        },
+      ]),
+    ).toMatch(/few days/i);
+    expect(
+      cexCoverageRefreshHintFromAggregates([
+        {
+          source: "binance",
+          eventCount: 100,
+          firstEarnedAt: "2022-01-01T00:00:00.000Z",
+          lastEarnedAt: "2024-07-01T00:00:00.000Z",
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      cexCoverageRefreshHintFromAggregates([
+        { source: "binance", eventCount: 10, firstEarnedAt: null, lastEarnedAt: null },
+      ]),
+    ).toBeNull();
   });
 });

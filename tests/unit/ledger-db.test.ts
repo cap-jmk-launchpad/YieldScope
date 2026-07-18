@@ -188,6 +188,8 @@ describe("ledger-db persistence", () => {
     const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
     const snap = await loadDbLedger("u-missing");
     expect(snap.events).toEqual([]);
+    expect(snap.eventsTotal).toBe(0);
+    expect(snap.eventsMode).toBe("all");
     expect(snap.aggregates.bySource).toEqual([]);
     expect(snap.wallet).toBeNull();
     expect(snap.sources.lunc_stake.status).toBe("not_connected");
@@ -254,6 +256,7 @@ describe("ledger-db persistence", () => {
                   source: "binance",
                   event_count: 1,
                   total_amount: 1.5,
+                  first_earned_at: "2024-07-01T00:00:00.000Z",
                   last_earned_at: "2024-07-01T00:00:00.000Z",
                 },
               ],
@@ -304,10 +307,15 @@ describe("ledger-db persistence", () => {
     const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
     const snap = await loadDbLedger("u1");
     expect(snap.events).toHaveLength(1);
+    expect(snap.eventsTotal).toBe(1);
+    expect(snap.eventsMode).toBe("all");
     expect(snap.sources.binance.status).toBe("ok");
     expect(snap.sources.binance.error).toBeUndefined();
     expect(snap.sources.binance.eventCount).toBe(1);
     expect(snap.aggregates.bySource[0].totalAmount).toBe("1.5");
+    expect(snap.aggregates.bySource[0].firstEarnedAt).toBe(
+      "2024-07-01T00:00:00.000Z",
+    );
     expect(snap.wallet?.address).toBe("0xabc");
   });
 
@@ -1570,5 +1578,314 @@ describe("ledger-db persistence", () => {
       "../../web/src/lib/ledger-db"
     );
     expect(await listDistinctEarnAssets()).toEqual([]);
+  });
+
+  it("loadDbLedger eventsMode=page returns one page and eventsTotal", async () => {
+    const rangeCalls: Array<[number, number]> = [];
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async (fromIdx: number, toIdx: number) => {
+                  rangeCalls.push([fromIdx, toIdx]);
+                  return {
+                    data: [
+                      {
+                        id: "binance:25",
+                        source: "binance",
+                        asset: "USDT",
+                        amount: "1",
+                        earned_at: "2024-07-01T00:00:00.000Z",
+                        raw_type: "REWARD",
+                      },
+                    ],
+                    error: null,
+                  };
+                },
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  event_count: 100,
+                  total_amount: 100,
+                  first_earned_at: "2022-01-01T00:00:00.000Z",
+                  last_earned_at: "2024-07-01T00:00:00.000Z",
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
+    const snap = await loadDbLedger("u1", {
+      eventsMode: "page",
+      eventsPage: 2,
+      eventsPageSize: 25,
+    });
+    expect(snap.eventsMode).toBe("page");
+    expect(snap.eventsPage).toBe(2);
+    expect(snap.eventsPageSize).toBe(25);
+    expect(snap.eventsTotal).toBe(100);
+    expect(snap.events).toHaveLength(1);
+    expect(snap.events[0].meta).toBeUndefined();
+    expect(rangeCalls).toEqual([[25, 49]]);
+  });
+
+  it("loadDbLedger eventsMode=none skips earn_events", async () => {
+    let eventsQueried = false;
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        eventsQueried = true;
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async () => ({ data: [], error: null }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  event_count: 50,
+                  total_amount: 10,
+                  first_earned_at: null,
+                  last_earned_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
+    const snap = await loadDbLedger("u1", { eventsMode: "none" });
+    expect(eventsQueried).toBe(false);
+    expect(snap.events).toEqual([]);
+    expect(snap.eventsTotal).toBe(50);
+    expect(snap.eventsMode).toBe("none");
+  });
+
+  it("loadDbLedger eventsMode=chart reads earn_daily_by_asset", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_daily_by_asset") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async () => ({
+                  data: [
+                    {
+                      source: "binance",
+                      asset: "USDT",
+                      day: "2024-07-01",
+                      total_amount: 3.5,
+                    },
+                  ],
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  event_count: 10,
+                  total_amount: 3.5,
+                  first_earned_at: "2024-07-01T00:00:00.000Z",
+                  last_earned_at: "2024-07-01T12:00:00.000Z",
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
+    const snap = await loadDbLedger("u1", { eventsMode: "chart" });
+    expect(snap.eventsMode).toBe("chart");
+    expect(snap.events).toEqual([
+      {
+        id: "daily:binance:USDT:2024-07-01",
+        source: "binance",
+        asset: "USDT",
+        amount: "3.5",
+        earnedAt: "2024-07-01T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("loadUserEarnAssets reads aggregates only", async () => {
+    let eventsQueried = false;
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        eventsQueried = true;
+        return {};
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [{ asset: "btc" }, { asset: "USDT" }, { asset: "" }],
+              error: null,
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const { loadUserEarnAssets } = await import("../../web/src/lib/ledger-db");
+    expect(await loadUserEarnAssets("u1")).toEqual(["BTC", "USDT"]);
+    expect(eventsQueried).toBe(false);
   });
 });
