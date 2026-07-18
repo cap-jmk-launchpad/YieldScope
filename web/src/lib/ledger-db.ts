@@ -140,11 +140,18 @@ export async function persistSourceSync(
       meta: e.meta ?? {},
       as_of: asOf,
     }));
-    const { error: upErr } = await admin.from("earn_events").upsert(rows, {
-      onConflict: "id",
-    });
-    if (upErr) {
-      throw new LedgerPersistError(`Failed writing earn events: ${upErr.message}`);
+    // Chunk to keep PostgREST payloads under proxy/body limits (CEX backfills).
+    const chunkSize = 500;
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const { error: upErr } = await admin.from("earn_events").upsert(chunk, {
+        onConflict: "id",
+      });
+      if (upErr) {
+        throw new LedgerPersistError(
+          `Failed writing earn events: ${upErr.message}`,
+        );
+      }
     }
   }
 
@@ -283,14 +290,17 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
   const profileId = profile.id as string;
 
   const [sourcesRes, bySourceRes, byAssetRes, walletRes] = await Promise.all([
-    admin.from("source_connections").select("*").eq("profile_id", profileId),
+    admin
+      .from("source_connections")
+      .select("source,status,last_error,last_synced_at")
+      .eq("profile_id", profileId),
     admin
       .from("earn_aggregates_by_source")
-      .select("*")
+      .select("source,event_count,total_amount,last_earned_at")
       .eq("profile_id", profileId),
     admin
       .from("earn_aggregates_by_asset")
-      .select("*")
+      .select("asset,source,event_count,total_amount")
       .eq("profile_id", profileId),
     admin
       .from("wallet_connections")

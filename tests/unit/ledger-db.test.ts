@@ -536,6 +536,55 @@ describe("ledger-db persistence", () => {
     expect(del).not.toHaveBeenCalled();
   });
 
+  it("persistSourceSync chunks earn event upserts", async () => {
+    const upsert = vi.fn(async () => ({ error: null }));
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          delete: () => ({
+            eq: () => ({
+              eq: async () => ({ error: null }),
+            }),
+          }),
+          upsert,
+        };
+      }
+      if (table === "source_connections") {
+        return { upsert: async () => ({ error: null }) };
+      }
+      if (table === "sync_runs") {
+        return { insert: async () => ({ error: null }) };
+      }
+      return {};
+    });
+    const { persistSourceSync } = await import("../../web/src/lib/ledger-db");
+    const events = Array.from({ length: 501 }, (_, i) => ({
+      id: `binance:${i}`,
+      source: "binance" as const,
+      asset: "USDT",
+      amount: "1",
+      earnedAt: "2024-07-01T00:00:00.000Z",
+    }));
+    await persistSourceSync({
+      userId: "u1",
+      source: "binance",
+      status: "ok",
+      events,
+    });
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(upsert.mock.calls[0]![0]).toHaveLength(500);
+    expect(upsert.mock.calls[1]![0]).toHaveLength(1);
+  });
+
   it("persistSourceSync fails on wallet / profile wallet errors", async () => {
     const { persistSourceSync, LedgerPersistError } = await import(
       "../../web/src/lib/ledger-db"
@@ -1028,5 +1077,164 @@ describe("ledger-db persistence", () => {
     expect(pageCalls[0]).toEqual([0, 999]);
     expect(pageCalls[1]).toEqual([1000, 1999]);
     expect(snap.sources.binance.eventCount).toBe(1050);
+  });
+
+  it("covers merge-default persistMode, nullish aggregates, and errors", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+          insert: () => ({
+            select: () => ({
+              single: async () => ({ data: null, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          delete: () => ({
+            eq: () => ({
+              eq: () => ({
+                gte: () => ({
+                  lte: async () => ({ error: null }),
+                }),
+              }),
+            }),
+          }),
+          upsert: async () => ({ error: null }),
+        };
+      }
+      if (table === "source_connections" || table === "wallet_connections") {
+        return { upsert: async () => ({ error: null }) };
+      }
+      if (table === "sync_runs") {
+        return { insert: async () => ({ error: null }) };
+      }
+      return {};
+    });
+    const {
+      persistSourceSync,
+      ensureProfileId,
+      loadDbLedger,
+      LedgerPersistError,
+      getSourceHighWaterMs,
+    } = await import("../../web/src/lib/ledger-db");
+
+    await persistSourceSync({
+      userId: "u1",
+      source: "binance",
+      status: "error",
+      events: [],
+      mergeFromMs: Date.parse("2024-07-01T00:00:00.000Z"),
+      mergeToMs: Date.parse("2024-07-31T23:59:59.999Z"),
+    });
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+          insert: () => ({
+            select: () => ({
+              single: async () => ({ data: null, error: null }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    await expect(ensureProfileId("u-new")).rejects.toThrow(/unknown/);
+
+    // Non-finite high water
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({
+                      data: { earned_at: "not-a-date" },
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    expect(await getSourceHighWaterMs("u1", "binance")).toBeNull();
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  status: "error",
+                  last_error: null,
+                  last_synced_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({
+                    data: null,
+                    error: { message: "wallet q" },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: () => ({
+          eq: async () => ({ data: [], error: null }),
+        }),
+      };
+    });
+    await expect(loadDbLedger("u1")).rejects.toBeInstanceOf(LedgerPersistError);
   });
 });

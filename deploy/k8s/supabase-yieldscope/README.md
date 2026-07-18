@@ -44,6 +44,33 @@ The auth Deployment pins `hostAliases` for `db` and `mail.yieldscope.d3bu7.com` 
 GoTrue is not blocked by intermittent CoreDNS UDP timeouts (engine → deck). If the `db` Service is
 recreated and gets a new ClusterIP, update `auth-deployment.yaml` and re-apply.
 
+## Schema migrations
+
+SQL lives in `migrations/` (mirrored under `supabase/migrations/`). The migrate Job
+(`migrate-job.yaml`) applies each `*.sql` once, tracked in `public.schema_migrations`.
+
+```bash
+export KUBECONFIG="$HOME/.kube/config-homelab"
+# Re-apply kustomize so the migrations ConfigMap picks up new files, then run the Job:
+bash deploy/scripts/k8s-yieldscope-supabase-apply.sh
+kubectl -n supabase-yieldscope delete job yieldscope-supabase-migrate --ignore-not-found
+kubectl -n supabase-yieldscope apply -f deploy/k8s/supabase-yieldscope/migrate-job.yaml
+kubectl -n supabase-yieldscope wait --for=condition=complete job/yieldscope-supabase-migrate --timeout=120s
+```
+
+Index inventory (hot paths):
+
+| Index | Serves |
+|-------|--------|
+| `earn_events_profile_earned_idx` | `loadDbLedger` paginated `.range()` by `earned_at DESC` |
+| `earn_events_profile_source_earned_idx` | merge-window delete + `getSourceHighWaterMs` |
+| `earn_events_profile_source_asset_idx` | aggregate views `GROUP BY` |
+| `ohlcv_symbol_interval_source_time_desc` | latest / as-of / max open_time with `source` |
+| `sync_runs_profile_started_idx` / `…_source_started_idx` | sync history |
+| `wallet_connections_profile_idx` | latest wallet |
+| `source_credentials` UNIQUE `(profile_id, source)` | credential load/save |
+| `profiles_user_id_idx` | `ensureProfileId` |
+
 ## Deploy
 
 ```bash

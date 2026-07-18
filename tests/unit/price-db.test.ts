@@ -75,65 +75,44 @@ describe("price-db upsert + latest queries", () => {
   });
 
   it("loadLatestCloses maps closes and falls back to 1d", async () => {
-    from.mockImplementation(() => ({
-      select: () => ({
-        eq: () => ({
-          eq: () => ({
-            eq: () => ({
-              order: () => ({
-                limit: () => ({
-                  maybeSingle: async () => {
-                    // First call chain is 1m — empty; tests fallback via second import path
-                    return { data: null, error: null };
-                  },
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    }));
-
-    // More precise mock: return 1m for BTC, empty for ETH then 1d for ETH
     let call = 0;
-    from.mockImplementation(() => ({
-      select: () => ({
-        eq: (_c: string, v: string) => ({
-          eq: () => ({
-            eq: () => ({
-              order: () => ({
-                limit: () => ({
-                  maybeSingle: async () => {
-                    call += 1;
-                    if (v === "BTCUSDT" && call === 1) {
-                      return {
-                        data: {
-                          close: "100000",
-                          open_time: "2026-07-18T08:00:00.000Z",
-                        },
-                        error: null,
-                      };
-                    }
-                    if (v === "ETHUSDT") {
-                      // 1m miss then 1d hit — order of Promise.all is nondeterministic,
-                      // so return 1d-shaped data whenever ETH is queried after BTC done
-                      return {
-                        data: {
-                          close: "4000",
-                          open_time: "2026-07-18T00:00:00.000Z",
-                        },
-                        error: null,
-                      };
-                    }
-                    return { data: null, error: null };
-                  },
-                }),
-              }),
+    from.mockImplementation((table: string) => {
+      expect(table).toBe("ohlcv_latest");
+      return {
+        select: () => ({
+          in: () => ({
+            eq: (_c: string, interval: string) => ({
+              eq: async () => {
+                call += 1;
+                if (interval === "1m") {
+                  return {
+                    data: [
+                      {
+                        symbol: "BTCUSDT",
+                        close: "100000",
+                        open_time: "2026-07-18T08:00:00.000Z",
+                      },
+                    ],
+                    error: null,
+                  };
+                }
+                // 1d fallback for missing ETHUSDT
+                return {
+                  data: [
+                    {
+                      symbol: "ETHUSDT",
+                      close: "4000",
+                      open_time: "2026-07-18T00:00:00.000Z",
+                    },
+                  ],
+                  error: null,
+                };
+              },
             }),
           }),
         }),
-      }),
-    }));
+      };
+    });
 
     const { loadLatestCloses } = await import(
       "../../web/src/lib/prices/price-db"
@@ -141,6 +120,7 @@ describe("price-db upsert + latest queries", () => {
     const latest = await loadLatestCloses(["BTCUSDT", "ETHUSDT"], "1m");
     expect(latest.BTCUSDT?.close).toBe(100000);
     expect(latest.ETHUSDT?.close).toBe(4000);
+    expect(call).toBe(2);
   });
 
   it("loadCloseAtOrBefore returns nearest prior candle", async () => {
@@ -223,17 +203,11 @@ describe("price-db upsert + latest queries", () => {
 
     from.mockImplementation(() => ({
       select: () => ({
-        eq: () => ({
+        in: () => ({
           eq: () => ({
-            eq: () => ({
-              order: () => ({
-                limit: () => ({
-                  maybeSingle: async () => ({
-                    data: null,
-                    error: { message: "latest fail" },
-                  }),
-                }),
-              }),
+            eq: async () => ({
+              data: null,
+              error: { message: "latest fail" },
             }),
           }),
         }),
@@ -414,5 +388,36 @@ describe("price-db upsert + latest queries", () => {
       }),
     }));
     await expect(loadMaxOpenTime("BTCUSDT", "1m")).rejects.toThrow(/ohlcv max/);
+  });
+
+  it("loadLatestCloses falls back to 1d when 1m is missing", async () => {
+    from.mockImplementation(() => ({
+      select: () => ({
+        in: () => ({
+          eq: (_c: string, interval: string) => ({
+            eq: async () => {
+              if (interval === "1m") {
+                return { data: [], error: null };
+              }
+              return {
+                data: [
+                  {
+                    symbol: "BTCUSDT",
+                    close: "25000",
+                    open_time: "2026-07-18T00:00:00.000Z",
+                  },
+                ],
+                error: null,
+              };
+            },
+          }),
+        }),
+      }),
+    }));
+    const { loadLatestCloses } = await import(
+      "../../web/src/lib/prices/price-db"
+    );
+    const latest = await loadLatestCloses(["BTCUSDT"], "1m");
+    expect(latest.BTCUSDT?.close).toBe(25000);
   });
 });

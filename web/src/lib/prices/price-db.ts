@@ -73,31 +73,24 @@ export async function loadLatestCloses(
   const admin = createAdminClient();
   const out: Record<string, { close: number; openTime: string }> = {};
 
-  // One query per symbol keeps the plan simple and index-friendly
-  await Promise.all(
-    symbols.map(async (symbol) => {
-      const { data, error } = await admin
-        .from("ohlcv")
-        .select("close, open_time")
-        .eq("symbol", symbol)
-        .eq("interval", interval)
-        .eq("source", "binance")
-        .order("open_time", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) {
-        throw new PricePersistError(
-          `ohlcv latest ${symbol}: ${error.message}`,
-        );
-      }
-      if (data?.close != null && data.open_time) {
-        out[symbol] = {
-          close: Number(data.close),
-          openTime: data.open_time as string,
-        };
-      }
-    }),
-  );
+  // Single batched read via ohlcv_latest (DISTINCT ON) — avoids N round-trips.
+  const { data, error } = await admin
+    .from("ohlcv_latest")
+    .select("symbol, close, open_time")
+    .in("symbol", symbols)
+    .eq("interval", interval)
+    .eq("source", "binance");
+  if (error) {
+    throw new PricePersistError(`ohlcv latest: ${error.message}`);
+  }
+  for (const row of data ?? []) {
+    const symbol = String(row.symbol ?? "");
+    if (!symbol || row.close == null || !row.open_time) continue;
+    out[symbol] = {
+      close: Number(row.close),
+      openTime: row.open_time as string,
+    };
+  }
 
   // Fallback to 1d if 1m missing (cold start before minute job catches up)
   if (interval === "1m") {
