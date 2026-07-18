@@ -25,11 +25,20 @@ describe("supabase admin client", () => {
 
   it("createAdminClient throws without env", async () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.SUPABASE_INTERNAL_URL;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     const { createAdminClient, isAdminConfigured } = await import(
       "../../web/src/lib/supabase/admin"
     );
     expect(isAdminConfigured()).toBe(false);
     expect(() => createAdminClient()).toThrow(/admin unavailable/i);
+  });
+
+  it("prefers SUPABASE_INTERNAL_URL for admin client", async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://public.example";
+    process.env.SUPABASE_INTERNAL_URL = "http://kong.internal:8000";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "role";
+    const { isAdminConfigured } = await import("../../web/src/lib/supabase/admin");
+    expect(isAdminConfigured()).toBe(true);
   });
 });

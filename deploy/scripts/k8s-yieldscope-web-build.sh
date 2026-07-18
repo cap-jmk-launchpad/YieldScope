@@ -27,9 +27,21 @@ CP="${NEXT_PUBLIC_CHECKPOINT_ADDRESS:-}"
 WC="${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-21fef48091f12692cad574a6f7753643}"
 
 echo "==> syncing sources to $BUILD_HOST"
-tar --exclude=node_modules --exclude=.next --exclude=web/.next \
-  --exclude=coverage --exclude=.git -cf - -C "$ROOT" . \
-  | ssh "$BUILD_HOST" 'rm -rf /tmp/yieldscope-build && mkdir -p /tmp/yieldscope-build && tar -xf - -C /tmp/yieldscope-build'
+TAR_EXCLUDES=(
+  --exclude=node_modules
+  --exclude=.next
+  --exclude=web/.next
+  --exclude=coverage
+  --exclude=.git
+  --exclude=.agents
+  --exclude=.cursor
+  --exclude=.codex
+  --exclude=deploy/scripts/_web-deploy.out.log
+  --exclude=deploy/scripts/_web-deploy.err.log
+)
+ssh "$BUILD_HOST" 'rm -rf /tmp/yieldscope-build && mkdir -p /tmp/yieldscope-build'
+tar "${TAR_EXCLUDES[@]}" -cf - -C "$ROOT" . \
+  | ssh "$BUILD_HOST" 'tar -xf - -C /tmp/yieldscope-build'
 
 echo "==> docker build $IMAGE (SUPABASE_URL=$SU)"
 ssh "$BUILD_HOST" "set -e

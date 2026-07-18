@@ -17,6 +17,8 @@ data:
   # for every user who synced without a connected wallet.
   USE_FIXTURE_DEMO: "0"
   NEXT_PUBLIC_SUPABASE_URL: "https://supabase.yieldscope.d3bu7.com"
+  # In-cluster Kong — server admin / price CronJob (avoids edge nginx 502s)
+  SUPABASE_INTERNAL_URL: "http://kong.supabase-yieldscope.svc.cluster.local:8000"
 ---
 apiVersion: apps/v1
 kind: Deployment
