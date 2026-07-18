@@ -9,7 +9,8 @@ data:
   SITE_URL: https://yieldscope.d3bu7.com
   GOTRUE_JWT_ISSUER: https://supabase.yieldscope.d3bu7.com/auth/v1
   # Must include app callback + reset-password (and localhost for dev).
-  GOTRUE_URI_ALLOW_LIST: "https://yieldscope.d3bu7.com/**,https://yieldscope.d3bu7.com/auth/callback,https://yieldscope.d3bu7.com/auth/reset-password,http://localhost:3000/**,http://localhost:3000/auth/callback,http://localhost:3000/auth/reset-password,http://127.0.0.1:3000/**"
+  # Prefer path-only recovery redirect (https://yieldscope.d3bu7.com/auth/reset-password).
+  GOTRUE_URI_ALLOW_LIST: "https://yieldscope.d3bu7.com/**,https://yieldscope.d3bu7.com/auth/callback,https://yieldscope.d3bu7.com/auth/callback?next=/auth/reset-password,https://yieldscope.d3bu7.com/auth/reset-password,http://localhost:3000/**,http://localhost:3000/auth/callback,http://localhost:3000/auth/reset-password,http://127.0.0.1:3000/**"
   GOTRUE_MAILER_EXTERNAL_HOSTS: "supabase.yieldscope.d3bu7.com,yieldscope.d3bu7.com"
   # Kong mounts GoTrue at /auth/v1; defaults of /verify land on Studio basic-auth.
   GOTRUE_MAILER_URLPATHS_RECOVERY: "/auth/v1/verify"
@@ -17,5 +18,16 @@ data:
   GOTRUE_MAILER_URLPATHS_INVITE: "/auth/v1/verify"
   GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: "/auth/v1/verify"
   GOTRUE_MAILER_URLPATHS_MAGIC_LINK: "/auth/v1/verify"
+  # Branded HTML bodies served by in-cluster auth-mail-templates (edit files under email-templates/).
+  GOTRUE_MAILER_TEMPLATES_CONFIRMATION: "http://auth-mail-templates/confirmation.html"
+  GOTRUE_MAILER_TEMPLATES_RECOVERY: "http://auth-mail-templates/recovery.html"
+  GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: "http://auth-mail-templates/magic_link.html"
+  GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: "http://auth-mail-templates/email_change.html"
+  GOTRUE_MAILER_TEMPLATES_INVITE: "http://auth-mail-templates/invite.html"
+  GOTRUE_MAILER_SUBJECTS_CONFIRMATION: "Confirm your YieldScope account"
+  GOTRUE_MAILER_SUBJECTS_RECOVERY: "Reset your YieldScope password"
+  GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: "Your YieldScope sign-in link"
+  GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE: "Confirm your new YieldScope email"
+  GOTRUE_MAILER_SUBJECTS_INVITE: "You're invited to YieldScope"
   STUDIO_DEFAULT_ORGANIZATION: YieldScope
   STUDIO_DEFAULT_PROJECT: YieldScope

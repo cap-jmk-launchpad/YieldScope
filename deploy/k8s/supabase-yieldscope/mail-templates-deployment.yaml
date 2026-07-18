@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-mail-templates
+  labels:
+    app: auth-mail-templates
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-mail-templates
+  template:
+    metadata:
+      labels:
+        app: auth-mail-templates
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: engine
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: templates
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /recovery.html
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+      volumes:
+        - name: templates
+          configMap:
+            name: yieldscope-auth-mail-templates
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-mail-templates
+  labels:
+    app: auth-mail-templates
+spec:
+  selector:
+    app: auth-mail-templates
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

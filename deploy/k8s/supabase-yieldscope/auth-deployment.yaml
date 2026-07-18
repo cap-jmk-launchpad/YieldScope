@@ -101,6 +101,56 @@ spec:
                 configMapKeyRef:
                   name: yieldscope-supabase-config
                   key: GOTRUE_MAILER_URLPATHS_MAGIC_LINK
+            - name: GOTRUE_MAILER_TEMPLATES_CONFIRMATION
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_TEMPLATES_CONFIRMATION
+            - name: GOTRUE_MAILER_TEMPLATES_RECOVERY
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_TEMPLATES_RECOVERY
+            - name: GOTRUE_MAILER_TEMPLATES_MAGIC_LINK
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_TEMPLATES_MAGIC_LINK
+            - name: GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE
+            - name: GOTRUE_MAILER_TEMPLATES_INVITE
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_TEMPLATES_INVITE
+            - name: GOTRUE_MAILER_SUBJECTS_CONFIRMATION
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_SUBJECTS_CONFIRMATION
+            - name: GOTRUE_MAILER_SUBJECTS_RECOVERY
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_SUBJECTS_RECOVERY
+            - name: GOTRUE_MAILER_SUBJECTS_MAGIC_LINK
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_SUBJECTS_MAGIC_LINK
+            - name: GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE
+            - name: GOTRUE_MAILER_SUBJECTS_INVITE
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_SUBJECTS_INVITE
             - name: GOTRUE_DISABLE_SIGNUP
               value: "false"
             - name: GOTRUE_JWT_ADMIN_ROLES

@@ -11,11 +11,34 @@ Auth email links must use `/auth/v1/verify` (via `GOTRUE_MAILER_URLPATHS_*`). Go
 `/verify` path hits Kong’s Studio catch-all (basic-auth) instead of GoTrue, so password-reset
 and confirm-email links appear to “redirect to Supabase”.
 
+**Password reset landing:** app `redirectTo` must be the path-only URL
+`https://yieldscope.d3bu7.com/auth/reset-password` (not `/auth/callback?next=...`). After
+`/auth/v1/verify`, GoTrue 302/303s there with either `?code=` (PKCE) or `#access_token=`
+(implicit). `GOTRUE_SITE_URL` is the app host; `API_EXTERNAL_URL` is the Supabase API host.
+
 Studio / dashboard is **basic-auth** via Kong (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` in the secret).
 
 Auth SMTP is wired through GoTrue env (`GOTRUE_SMTP_*`) — no Studio UI click-through. Mailer uses the
 self-hosted **yieldscope-mail** docker-mailserver (`noreply@yieldscope.d3bu7.com` via
 `mail.yieldscope.d3bu7.com:587`). See `deploy/k8s/yieldscope-mail/README.md`.
+
+### Auth email branding (code-managed, not Studio)
+
+GoTrue loads HTML templates from the in-cluster `auth-mail-templates` Service (nginx + ConfigMap).
+Subjects and template URLs live in `configmap.yaml`; bodies are files under `email-templates/`.
+
+| Flow | Template file | Subject env |
+|------|---------------|-------------|
+| Signup confirm | `confirmation.html` | `GOTRUE_MAILER_SUBJECTS_CONFIRMATION` |
+| Password reset | `recovery.html` | `GOTRUE_MAILER_SUBJECTS_RECOVERY` |
+| Magic link | `magic_link.html` | `GOTRUE_MAILER_SUBJECTS_MAGIC_LINK` |
+| Email change | `email_change.html` | `GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE` |
+| Invite | `invite.html` | `GOTRUE_MAILER_SUBJECTS_INVITE` |
+
+To change branding later: edit the HTML under `email-templates/`, adjust subjects in `configmap.yaml` if needed, then
+`kubectl apply -k deploy/k8s/supabase-yieldscope/` and restart `auth` so GoTrue refreshes its template cache
+(`kubectl -n supabase-yieldscope rollout restart deploy/auth`). Do **not** edit templates in Studio — they are
+ignored when `GOTRUE_MAILER_TEMPLATES_*` is set.
 
 The auth Deployment pins `hostAliases` for `db` and `mail.yieldscope.d3bu7.com` to their ClusterIPs so
 GoTrue is not blocked by intermittent CoreDNS UDP timeouts (engine → deck). If the `db` Service is

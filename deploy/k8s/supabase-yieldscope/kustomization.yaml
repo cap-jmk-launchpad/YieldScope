@@ -17,6 +17,14 @@ configMapGenerator:
       - migrations/202607160002_auth_profiles.sql
       - migrations/202607160003_sync_analytics.sql
       - migrations/202607160004_lunc_source.sql
+  # GoTrue fetches these over HTTP from auth-mail-templates (not Studio UI).
+  - name: yieldscope-auth-mail-templates
+    files:
+      - confirmation.html=email-templates/confirmation.html
+      - recovery.html=email-templates/recovery.html
+      - magic_link.html=email-templates/magic_link.html
+      - email_change.html=email-templates/email_change.html
+      - invite.html=email-templates/invite.html
 resources:
   - namespace.yaml
   - configmap.yaml
@@ -24,6 +32,7 @@ resources:
   - postgres-statefulset.yaml
   - postgres-service.yaml
   - auth-deployment.yaml
+  - mail-templates-deployment.yaml
   - rest-deployment.yaml
   - meta-deployment.yaml
   - studio-deployment.yaml
