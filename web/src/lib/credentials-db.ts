@@ -1,4 +1,5 @@
 import type { CexCredentials } from "@/lib/adapters/types";
+import { parseLuncAddress } from "@/lib/adapters/lunc-stake";
 import {
   decryptSecret,
   encryptSecret,
@@ -140,7 +141,18 @@ export function validateSavePayload(input: {
 
   const lunc = input.luncAddress?.trim() ?? "";
   if (lunc) {
-    data.luncAddress = lunc;
+    try {
+      // Normalize explorer links → terra1…; reject garbage early.
+      data.luncAddress = parseLuncAddress(lunc);
+    } catch (err) {
+      return {
+        ok: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Invalid Terra Classic address — paste a terra1… address or explorer link",
+      };
+    }
     any = true;
   }
 

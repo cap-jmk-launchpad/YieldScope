@@ -511,11 +511,11 @@ export function Dashboard({
 
       if (sourceErrors.length > 0) {
         setMessage(
-          `Sync finished with errors (${modeLabel}). LUNC/Monad refresh pending only. ${sourceErrors.join(" · ")}`,
+          `Sync finished with errors (${modeLabel}). LUNC/Monad = current pending only (not historical claims). ${sourceErrors.join(" · ")}`,
         );
       } else {
         setMessage(
-          `Sync finished (${modeLabel}). LUNC/Monad store current pending rewards only.`,
+          `Sync finished (${modeLabel}). LUNC/Monad store current pending rewards only — not multi-year claim history.`,
         );
       }
       if (forceFullRefresh) setForceFullRefresh(false);
@@ -749,9 +749,9 @@ export function Dashboard({
           Sync window applies to Binance and OKX history (UTC day bounds). The
           tables below show your full stored ledger after sync — not a filtered
           preview of the picker. Monad stake and LUNC wallet only refresh
-          current pending rewards (not multi-year history). After the first
-          sync, All time only picks up new exchange rewards unless you
-          re-download full history.
+          current pending rewards from the chain (LCD has no multi-year claim
+          history). After the first sync, All time only picks up new exchange
+          rewards unless you re-download full history.
           {selectedWindowLabel
             ? ` Selected CEX window: ${selectedWindowLabel}.`
             : ""}

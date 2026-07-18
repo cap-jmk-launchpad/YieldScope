@@ -43,13 +43,39 @@ describe("LUNC (Terra Classic) stake adapter", () => {
     expect(microToHuman("0.000000001")).toBe("0.000000000000001");
   });
 
-  it("normalizes pending rewards from fixture", () => {
+  it("normalizes pending rewards from fixture via LCD totals", () => {
     const events = normalizeLuncRewards(ADDR, load("rewards-sample.json"), new Date("2024-07-01T00:00:00Z"));
-    expect(events.length).toBe(3);
+    // Fixture has totals — prefer one row per denom over validator×denom.
+    expect(events.length).toBe(2);
     expect(events.every((e) => e.source === "lunc_stake")).toBe(true);
-    expect(events[0].asset).toBe("LUNC");
+    expect(events.every((e) => e.rawType === "pending_total_reward")).toBe(true);
+    expect(events.find((e) => e.asset === "LUNC")?.amount).toBe("1235.56789");
     expect(events.some((e) => e.asset === "USTC")).toBe(true);
-    expect(events.every((e) => e.id.startsWith("lunc_stake:"))).toBe(true);
+    expect(events.every((e) => e.id.includes(":total:"))).toBe(true);
+  });
+
+  it("falls back to per-validator when totals absent", () => {
+    const events = normalizeLuncRewards(
+      ADDR,
+      {
+        rewards: [
+          {
+            validator_address: "terravaloper1abc",
+            reward: [{ denom: "uluna", amount: "1000000" }],
+          },
+          {
+            validator_address: "terravaloper1def",
+            reward: [{ denom: "uluna", amount: "2000000" }],
+          },
+        ],
+      },
+      new Date("2024-07-01T00:00:00Z"),
+    );
+    expect(events).toHaveLength(2);
+    expect(events.every((e) => e.rawType === "pending_delegation_reward")).toBe(
+      true,
+    );
+    expect(events.map((e) => e.amount).sort()).toEqual(["1", "2"]);
   });
 
   it("returns empty for empty rewards", () => {
@@ -73,7 +99,7 @@ describe("LUNC (Terra Classic) stake adapter", () => {
       lcdUrl: "https://lcd.example",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    expect(events.length).toBe(3);
+    expect(events.length).toBe(2);
     expect(fetchImpl).toHaveBeenCalledWith(
       `https://lcd.example/cosmos/distribution/v1beta1/delegators/${ADDR}/rewards`,
       expect.any(Object),

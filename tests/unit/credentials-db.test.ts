@@ -89,7 +89,16 @@ describe("credentials-db persistence", () => {
         okx: { apiKey: "k", apiSecret: "s", passphrase: "p" },
       }).ok,
     ).toBe(true);
-    expect(validateSavePayload({ luncAddress: " terra1abc " }).ok).toBe(true);
+    expect(validateSavePayload({ luncAddress: " terra1abc " }).ok).toBe(false);
+    const luncOk = validateSavePayload({
+      luncAddress: `https://finder.terra.money/classic/address/${"terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"}`,
+    });
+    expect(luncOk.ok).toBe(true);
+    if (luncOk.ok) {
+      expect(luncOk.data.luncAddress).toBe(
+        "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
+      );
+    }
     const wallet = validateSavePayload({ walletAddress: WALLET, chainId: 10143 });
     expect(wallet.ok).toBe(true);
     if (wallet.ok) {

@@ -285,7 +285,9 @@ export function ConnectPanel() {
         </div>
         <p className="hint">
           Paste a <code>terra1…</code> address or a Finder / Mintscan wallet
-          link. We read pending staking rewards publicly — no keys needed.
+          link. Sync stores <strong>current pending</strong> staking rewards
+          from the chain (not past withdrawals). No keys needed — the sync
+          date range does not apply to LUNC.
         </p>
         <label>
           Wallet address or link

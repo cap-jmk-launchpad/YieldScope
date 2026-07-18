@@ -87,10 +87,49 @@ export function microToHuman(amount: string, decimals = 6): string {
   }
 }
 
+function coinToPendingEvent(
+  address: string,
+  coin: LuncRewardCoin,
+  earnedAt: string,
+  opts: { validator?: string; idSuffix: string; rawType: string },
+): EarnEvent | null {
+  if (!coin?.denom || coin.amount === undefined || coin.amount === null) {
+    throw new LuncAdapterError("Reward coin missing denom/amount", "malformed");
+  }
+  const micro = String(coin.amount);
+  if (isZeroDecimal(micro)) return null;
+  let amount: string;
+  try {
+    amount = microToHuman(micro);
+  } catch {
+    throw new LuncAdapterError(`Bad amount ${coin.amount}`, "bad_amount");
+  }
+  return {
+    id: `lunc_stake:${address}:${opts.idSuffix}:${coin.denom}`,
+    source: "lunc_stake",
+    asset: denomToAsset(coin.denom),
+    amount,
+    earnedAt,
+    rawType: opts.rawType,
+    meta: {
+      ...(opts.validator ? { validator: opts.validator } : {}),
+      denom: coin.denom,
+      microAmount: coin.amount,
+      address,
+    },
+  };
+}
+
 /**
  * Pure boundary: LCD rewards payload → EarnEvent[].
- * One event per (validator, denom) with non-zero pending rewards.
- * Fail closed on malformed payload.
+ *
+ * Prefers `total` (one row per denom) when present — matches LCD aggregates
+ * and avoids exploding into validator×denom dust rows. Falls back to
+ * per-validator rows when totals are empty.
+ *
+ * LCD only exposes **current pending** distribution rewards (not historical
+ * withdraw txs). Public Terra Classic LCD/FCD tx-search is unreliable for
+ * MsgWithdrawDelegatorReward history.
  */
 export function normalizeLuncRewards(
   address: string,
@@ -100,62 +139,33 @@ export function normalizeLuncRewards(
   if (!payload || typeof payload !== "object") {
     throw new LuncAdapterError("Malformed LCD rewards response", "malformed");
   }
-  const rewards = payload.rewards ?? [];
-  const events: EarnEvent[] = [];
   const earnedAt = asOf.toISOString();
+  const events: EarnEvent[] = [];
 
-  for (const entry of rewards) {
+  // Prefer chain-reported totals when any non-zero coin exists.
+  const totals = payload.total ?? [];
+  if (totals.length > 0) {
+    for (const coin of totals) {
+      const ev = coinToPendingEvent(address, coin, earnedAt, {
+        idSuffix: "total",
+        rawType: "pending_total_reward",
+      });
+      if (ev) events.push(ev);
+    }
+    if (events.length > 0) return events;
+  }
+
+  for (const entry of payload.rewards ?? []) {
     if (!entry?.validator_address) {
       throw new LuncAdapterError("Reward row missing validator_address", "malformed");
     }
     for (const coin of entry.reward ?? []) {
-      if (!coin?.denom || coin.amount === undefined || coin.amount === null) {
-        throw new LuncAdapterError("Reward coin missing denom/amount", "malformed");
-      }
-      const micro = String(coin.amount);
-      if (isZeroDecimal(micro)) continue;
-      let amount: string;
-      try {
-        amount = microToHuman(micro);
-      } catch {
-        throw new LuncAdapterError(`Bad amount ${coin.amount}`, "bad_amount");
-      }
-      const asset = denomToAsset(coin.denom);
-      events.push({
-        id: `lunc_stake:${address}:${entry.validator_address}:${coin.denom}`,
-        source: "lunc_stake",
-        asset,
-        amount,
-        earnedAt,
+      const ev = coinToPendingEvent(address, coin, earnedAt, {
+        validator: entry.validator_address,
+        idSuffix: entry.validator_address,
         rawType: "pending_delegation_reward",
-        meta: {
-          validator: entry.validator_address,
-          denom: coin.denom,
-          microAmount: coin.amount,
-          address,
-        },
       });
-    }
-  }
-
-  // If per-validator empty but total present, emit totals
-  if (events.length === 0 && (payload.total?.length ?? 0) > 0) {
-    for (const coin of payload.total!) {
-      if (!coin?.denom || coin.amount == null) {
-        throw new LuncAdapterError("Total coin missing denom/amount", "malformed");
-      }
-      const micro = String(coin.amount);
-      if (isZeroDecimal(micro)) continue;
-      const amount = microToHuman(micro);
-      events.push({
-        id: `lunc_stake:${address}:total:${coin.denom}`,
-        source: "lunc_stake",
-        asset: denomToAsset(coin.denom),
-        amount,
-        earnedAt,
-        rawType: "pending_total_reward",
-        meta: { denom: coin.denom, microAmount: coin.amount, address },
-      });
+      if (ev) events.push(ev);
     }
   }
 
