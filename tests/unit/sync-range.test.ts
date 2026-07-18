@@ -73,6 +73,19 @@ describe("sync-range", () => {
     expect(chunks[0].endMs).toBe(to);
   });
 
+  it("chunks a multi-year custom window without truncating", () => {
+    const from = Date.parse("2019-07-01T00:00:00.000Z");
+    const to = Date.parse("2024-07-01T23:59:59.999Z");
+    const chunks = chunkTimeRange(from, to);
+    expect(chunks.length).toBeGreaterThan(50);
+    expect(chunks[0].endMs).toBe(to);
+    expect(chunks[chunks.length - 1].startMs).toBe(from);
+    // contiguous coverage: each next chunk ends just before prior start
+    for (let i = 0; i < chunks.length - 1; i += 1) {
+      expect(chunks[i + 1].endMs).toBe(chunks[i].startMs - 1);
+    }
+  });
+
   it("parses range from API body", () => {
     expect(parseSyncRangeBody({ range: { mode: "all" } })).toEqual({
       mode: "all",

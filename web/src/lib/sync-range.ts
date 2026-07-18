@@ -29,7 +29,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const BINANCE_MAX_WINDOW_MS = 30 * DAY_MS;
 
 /** How far back "all time" walks for CEX history (safety cap). */
-export const ALL_TIME_LOOKBACK_MS = 2 * 365 * DAY_MS;
+export const ALL_TIME_LOOKBACK_MS = 5 * 365 * DAY_MS;
 
 /**
  * Overlap when incrementally syncing from the last high-water mark so late

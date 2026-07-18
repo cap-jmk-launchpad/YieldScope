@@ -151,7 +151,8 @@ export async function persistSourceSync(
       profile_id: profileId,
       source: input.source,
       status: input.status,
-      last_error: input.error ?? null,
+      // Clear stale errors whenever this source is not currently failing.
+      last_error: input.status === "error" ? (input.error ?? null) : null,
       last_synced_at: asOf,
     },
     { onConflict: "profile_id,source" },
@@ -274,62 +275,81 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
 
   const profileId = profile.id as string;
 
-  const [eventsRes, sourcesRes, bySourceRes, byAssetRes, walletRes] =
-    await Promise.all([
-      admin
-        .from("earn_events")
-        .select("id,source,asset,amount,earned_at,raw_type,meta")
-        .eq("profile_id", profileId)
-        .order("earned_at", { ascending: false })
-        .limit(500),
-      admin.from("source_connections").select("*").eq("profile_id", profileId),
-      admin
-        .from("earn_aggregates_by_source")
-        .select("*")
-        .eq("profile_id", profileId),
-      admin
-        .from("earn_aggregates_by_asset")
-        .select("*")
-        .eq("profile_id", profileId),
-      admin
-        .from("wallet_connections")
-        .select("address,chain_id,last_seen_at")
-        .eq("profile_id", profileId)
-        .order("last_seen_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
+  const [sourcesRes, bySourceRes, byAssetRes, walletRes] = await Promise.all([
+    admin.from("source_connections").select("*").eq("profile_id", profileId),
+    admin
+      .from("earn_aggregates_by_source")
+      .select("*")
+      .eq("profile_id", profileId),
+    admin
+      .from("earn_aggregates_by_asset")
+      .select("*")
+      .eq("profile_id", profileId),
+    admin
+      .from("wallet_connections")
+      .select("address,chain_id,last_seen_at")
+      .eq("profile_id", profileId)
+      .order("last_seen_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
-  for (const res of [eventsRes, sourcesRes, bySourceRes, byAssetRes]) {
+  for (const res of [sourcesRes, bySourceRes, byAssetRes]) {
     if (res.error) throw new LedgerPersistError(res.error.message);
   }
   if (walletRes.error) throw new LedgerPersistError(walletRes.error.message);
+
+  // Page through all earn events. A hard 500-row cap previously made multi-year
+  // history look like "only a couple of days" in the UI/charts.
+  const PAGE = 1000;
+  const MAX_EVENTS = 100_000;
+  const events: EarnEvent[] = [];
+  for (let from = 0; from < MAX_EVENTS; from += PAGE) {
+    const to = Math.min(from + PAGE - 1, MAX_EVENTS - 1);
+    const { data, error } = await admin
+      .from("earn_events")
+      .select("id,source,asset,amount,earned_at,raw_type,meta")
+      .eq("profile_id", profileId)
+      .order("earned_at", { ascending: false })
+      .range(from, to);
+    if (error) throw new LedgerPersistError(error.message);
+    const batch = data ?? [];
+    for (const row of batch) {
+      events.push({
+        id: row.id as string,
+        source: row.source as SourceId,
+        asset: row.asset as string,
+        amount: String(row.amount),
+        earnedAt: row.earned_at as string,
+        rawType: (row.raw_type as string | null) ?? undefined,
+        meta: (row.meta as Record<string, unknown>) ?? undefined,
+      });
+    }
+    if (batch.length < PAGE) break;
+  }
 
   const sources = emptySources();
   for (const row of sourcesRes.data ?? []) {
     const src = row.source as SourceId;
     if (src in sources) {
+      const status = row.status as SourceStatus;
       sources[src] = {
-        status: row.status as SourceStatus,
-        error: row.last_error ?? undefined,
+        status,
+        // Only surface errors for failing sources — never stale last_error on ok.
+        error:
+          status === "error" ? (row.last_error ?? undefined) : undefined,
         eventCount: 0,
         lastSyncedAt: row.last_synced_at ?? undefined,
       };
     }
   }
 
-  const events: EarnEvent[] = (eventsRes.data ?? []).map((row) => ({
-    id: row.id as string,
-    source: row.source as SourceId,
-    asset: row.asset as string,
-    amount: String(row.amount),
-    earnedAt: row.earned_at as string,
-    rawType: (row.raw_type as string | null) ?? undefined,
-    meta: (row.meta as Record<string, unknown>) ?? undefined,
-  }));
-
-  for (const e of events) {
-    sources[e.source].eventCount += 1;
+  // Prefer aggregate counts (full ledger) over counting the loaded event page.
+  for (const r of bySourceRes.data ?? []) {
+    const src = r.source as SourceId;
+    if (src in sources) {
+      sources[src].eventCount = Number(r.event_count);
+    }
   }
 
   const aggregates: LedgerAggregates = {

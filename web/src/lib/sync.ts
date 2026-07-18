@@ -31,6 +31,14 @@ function useFixtures(): boolean {
 /** Strip infra jargon from adapter failures before they reach the UI. */
 function userFacingAdapterError(err: unknown, fallback: string): string {
   const raw = err instanceof Error ? err.message : String(err);
+  // Keep exchange-authored auth hints (incl. OKX 501xx / "OKX HTTP …").
+  if (
+    /^(OKX|Binance|LUNC|Monad)\b/i.test(raw) ||
+    /\b501\d{2}\b/.test(raw) ||
+    /re-save|passphrase|API key/i.test(raw)
+  ) {
+    return raw;
+  }
   if (
     /LCD|RPC|eth_call|precompile|HTTP \d+|malformed|decode|STATICCALL|fail.?closed|persist|Postgres|Supabase|service.?role/i.test(
       raw,

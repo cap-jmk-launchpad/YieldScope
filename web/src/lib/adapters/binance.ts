@@ -199,32 +199,27 @@ async function fetchWindow(
   return events;
 }
 
-function resolveChunks(opts?: EarnFetchOptions): {
-  chunks: Array<{ startMs: number; endMs: number }>;
-  stopAfterEmpty: boolean;
-} {
+function resolveChunks(opts?: EarnFetchOptions): Array<{
+  startMs: number;
+  endMs: number;
+}> {
   const now = Date.now();
 
-  // Explicit all-time: walk ~2y in ≤30-day windows; stop after empty streak.
+  // Explicit all-time: walk full lookback in ≤30-day windows (no early stop —
+  // gaps of empty months must not truncate older history).
   if (opts?.allTime) {
-    return { chunks: allTimeBinanceChunks(now), stopAfterEmpty: true };
+    return allTimeBinanceChunks(now);
   }
 
-  // Custom / incremental range bounds
+  // Custom / incremental range bounds — walk every chunk in the window.
   if (opts?.startMs != null || opts?.endMs != null) {
     const endMs = opts.endMs ?? now;
     const startMs = opts.startMs ?? endMs - ALL_TIME_LOOKBACK_MS;
-    return {
-      chunks: chunkTimeRange(startMs, endMs),
-      stopAfterEmpty: false,
-    };
+    return chunkTimeRange(startMs, endMs);
   }
 
   // No opts (legacy / unit tests): single ≤30-day window ending now.
-  return {
-    chunks: [{ startMs: now - BINANCE_MAX_WINDOW_MS + 1, endMs: now }],
-    stopAfterEmpty: false,
-  };
+  return [{ startMs: now - BINANCE_MAX_WINDOW_MS + 1, endMs: now }];
 }
 
 /**
@@ -236,22 +231,15 @@ export const fetchBinanceEarnEvents: FetchEarnEvents = async (
   creds,
   opts?: EarnFetchOptions,
 ) => {
-  const { chunks, stopAfterEmpty } = resolveChunks(opts);
+  const chunks = resolveChunks(opts);
   const seen = new Set<string>();
   const events: EarnEvent[] = [];
-  let emptyStreak = 0;
 
   for (let i = 0; i < chunks.length; i += 1) {
     const { startMs, endMs } = chunks[i];
     if (i > 0) await sleep(CHUNK_PAUSE_MS);
 
     const batch = await fetchWindow(creds, startMs, endMs);
-    if (batch.length === 0) {
-      emptyStreak += 1;
-      if (stopAfterEmpty && emptyStreak >= 3) break;
-      continue;
-    }
-    emptyStreak = 0;
     for (const e of batch) {
       if (seen.has(e.id)) continue;
       seen.add(e.id);

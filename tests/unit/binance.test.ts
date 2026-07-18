@@ -114,7 +114,7 @@ describe("Binance Simple Earn adapter", () => {
     expect(url).toContain(`endTime=${endMs}`);
   });
 
-  it("fetchBinanceEarnEvents allTime walks multiple windows", async () => {
+  it("fetchBinanceEarnEvents allTime walks the full lookback (no early stop)", async () => {
     const empty = load("rewards-empty.json");
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -125,9 +125,31 @@ describe("Binance Simple Earn adapter", () => {
       { apiKey: "k", apiSecret: "s" },
       { allTime: true },
     );
-    // Stops after 3 consecutive empty windows when walking all-time
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
-    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(10);
+    // 5y lookback / ≤30d chunks ≈ 61 windows — must not stop after 3 empties
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(50);
+  });
+
+  it("fetchBinanceEarnEvents walks every chunk for a multi-year custom range", async () => {
+    const empty = load("rewards-empty.json");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => empty,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const startMs = Date.parse("2019-07-01T00:00:00.000Z");
+    const endMs = Date.parse("2024-07-01T23:59:59.999Z");
+    await fetchBinanceEarnEvents(
+      { apiKey: "k", apiSecret: "s" },
+      { startMs, endMs },
+    );
+    // ~5 years → more than 50 × 30-day windows
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(50);
+    const firstUrl = String(fetchMock.mock.calls[0][0]);
+    const lastUrl = String(
+      fetchMock.mock.calls[fetchMock.mock.calls.length - 1][0],
+    );
+    expect(firstUrl).toContain(`endTime=${endMs}`);
+    expect(lastUrl).toContain(`startTime=${startMs}`);
   });
 
   it("fetchBinanceEarnEvents with accessToken uses Bearer", async () => {

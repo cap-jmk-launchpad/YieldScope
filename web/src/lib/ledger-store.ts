@@ -76,7 +76,8 @@ export function replaceSourceEvents(
   const sourceCount = merged.filter((e) => e.source === source).length;
   ledger.sources[source] = {
     status: result.status,
-    error: result.error,
+    // Never keep a previous error string after an ok / not_connected sync.
+    error: result.status === "error" ? result.error : undefined,
     lastSyncedAt: new Date().toISOString(),
     eventCount: sourceCount,
   };

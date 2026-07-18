@@ -209,7 +209,7 @@ describe("ledger-db persistence", () => {
           select: () => ({
             eq: () => ({
               order: () => ({
-                limit: async () => ({
+                range: async () => ({
                   data: [
                     {
                       id: "binance:1",
@@ -236,7 +236,7 @@ describe("ledger-db persistence", () => {
                 {
                   source: "binance",
                   status: "ok",
-                  last_error: null,
+                  last_error: "stale should be ignored",
                   last_synced_at: "2024-07-01T01:00:00.000Z",
                 },
               ],
@@ -305,6 +305,8 @@ describe("ledger-db persistence", () => {
     const snap = await loadDbLedger("u1");
     expect(snap.events).toHaveLength(1);
     expect(snap.sources.binance.status).toBe("ok");
+    expect(snap.sources.binance.error).toBeUndefined();
+    expect(snap.sources.binance.eventCount).toBe(1);
     expect(snap.aggregates.bySource[0].totalAmount).toBe("1.5");
     expect(snap.wallet?.address).toBe("0xabc");
   });
@@ -845,7 +847,7 @@ describe("ledger-db persistence", () => {
           select: () => ({
             eq: () => ({
               order: () => ({
-                limit: async () => ({
+                range: async () => ({
                   data: [
                     {
                       id: "x",

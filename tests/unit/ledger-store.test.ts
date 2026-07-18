@@ -36,6 +36,21 @@ describe("ledger-store", () => {
     });
     expect(getLedger().events).toHaveLength(0);
     expect(getLedger().sources.binance.error).toBe("boom");
+
+    replaceSourceEvents("binance", {
+      status: "ok",
+      events: [
+        {
+          id: "binance:2",
+          source: "binance",
+          asset: "USDT",
+          amount: "2",
+          earnedAt: "2024-07-02T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(getLedger().sources.binance.status).toBe("ok");
+    expect(getLedger().sources.binance.error).toBeUndefined();
   });
 
   it("merge window keeps events outside the synced range", () => {

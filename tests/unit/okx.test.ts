@@ -1,11 +1,16 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   OkxAdapterError,
   fetchOkxEarnEvents,
+  formatOkxApiError,
   normalizeOkxEarn,
+  resetOkxBaseCache,
+  resolveOkxApiBases,
+  signOkxRequest,
 } from "../../web/src/lib/adapters/okx";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../fixtures/okx");
@@ -15,8 +20,22 @@ function load(name: string) {
 }
 
 describe("OKX earn adapter", () => {
+  const prevBase = process.env.OKX_API_BASE;
+  const prevSim = process.env.OKX_SIMULATED_TRADING;
+
+  beforeEach(() => {
+    resetOkxBaseCache();
+    delete process.env.OKX_API_BASE;
+    delete process.env.OKX_SIMULATED_TRADING;
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
+    resetOkxBaseCache();
+    if (prevBase === undefined) delete process.env.OKX_API_BASE;
+    else process.env.OKX_API_BASE = prevBase;
+    if (prevSim === undefined) delete process.env.OKX_SIMULATED_TRADING;
+    else process.env.OKX_SIMULATED_TRADING = prevSim;
   });
 
   it("normalizes lending history fixture", () => {
@@ -40,17 +59,136 @@ describe("OKX earn adapter", () => {
     );
   });
 
-  it("surfaces 50119 with re-save hint", () => {
+  it("surfaces 50119 with region hint", () => {
+    expect(formatOkxApiError("50119", "API key doesn't exist")).toMatch(
+      /eea\.okx\.com|region/i,
+    );
     expect(() =>
       normalizeOkxEarn({
         code: "50119",
         msg: "API key doesn't exist",
         data: [],
       }),
-    ).toThrow(/re-save OKX/i);
+    ).toThrow(/region|eea/i);
+  });
+
+  it("signOkxRequest matches HMAC-SHA256 base64 prehash", () => {
+    const ts = "2020-12-08T09:08:57.715Z";
+    const path = "/api/v5/finance/savings/lending-history?limit=100";
+    const secret = "test-secret";
+    const expected = createHmac("sha256", secret)
+      .update(`${ts}GET${path}`)
+      .digest("base64");
+    expect(signOkxRequest(ts, "GET", path, "", secret)).toBe(expected);
+  });
+
+  it("resolveOkxApiBases pins when OKX_API_BASE is set", () => {
+    process.env.OKX_API_BASE = "https://eea.okx.com/";
+    expect(resolveOkxApiBases()).toEqual(["https://eea.okx.com"]);
+  });
+
+  it("resolveOkxApiBases lists global then EEA hosts by default", () => {
+    expect(resolveOkxApiBases()).toEqual([
+      "https://www.okx.com",
+      "https://eea.okx.com",
+      "https://my.okx.com",
+    ]);
+  });
+
+  it("retries EEA base when www returns 50119", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).startsWith("https://www.okx.com")) {
+        return {
+          ok: false,
+          status: 401,
+          text: async () =>
+            JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
+        };
+      }
+      if (String(url).startsWith("https://eea.okx.com")) {
+        return {
+          ok: true,
+          json: async () => load("lending-history.json"),
+        };
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events).toHaveLength(2);
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.startsWith("https://www.okx.com"))).toBe(true);
+    expect(urls.some((u) => u.startsWith("https://eea.okx.com"))).toBe(true);
+    // Sticky: second page (if any) should prefer eea — only one page here.
+    expect(resolveOkxApiBases()[0]).toBe("https://eea.okx.com");
+  });
+
+  it("sends OK-ACCESS passphrase and sign headers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => load("lending-empty.json"),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    process.env.OKX_API_BASE = "https://www.okx.com";
+
+    await fetchOkxEarnEvents({
+      apiKey: "key-abc",
+      apiSecret: "sec-xyz",
+      passphrase: "pass-123",
+    });
+
+    const init = fetchMock.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(init.headers["OK-ACCESS-KEY"]).toBe("key-abc");
+    expect(init.headers["OK-ACCESS-PASSPHRASE"]).toBe("pass-123");
+    expect(init.headers["OK-ACCESS-SIGN"]).toMatch(/^[A-Za-z0-9+/=]+$/);
+    expect(init.headers["OK-ACCESS-TIMESTAMP"]).toMatch(
+      /^\d{4}-\d{2}-\d{2}T.*Z$/,
+    );
+    expect(init.headers["x-simulated-trading"]).toBeUndefined();
+  });
+
+  it("adds x-simulated-trading when OKX_SIMULATED_TRADING=1", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    process.env.OKX_SIMULATED_TRADING = "1";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => load("lending-empty.json"),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    const init = fetchMock.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(init.headers["x-simulated-trading"]).toBe("1");
+  });
+
+  it("does not regional-fallback on passphrase errors", async () => {
+    process.env.OKX_API_BASE = undefined;
+    delete process.env.OKX_API_BASE;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () =>
+        JSON.stringify({ code: "50111", msg: "Invalid Passphrase" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      fetchOkxEarnEvents({ apiKey: "k", apiSecret: "s", passphrase: "bad" }),
+    ).rejects.toThrow(/passphrase/i);
+    // Only tried www — not eea/my
+    expect(fetchMock.mock.calls.length).toBe(1);
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^https:\/\/www\.okx\.com/);
   });
 
   it("stops pagination when after cursor does not advance", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
     const page = {
       code: "0",
       data: Array.from({ length: 100 }, (_, i) => ({
@@ -85,6 +223,7 @@ describe("OKX earn adapter", () => {
   });
 
   it("fetchOkxEarnEvents with API key", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -102,6 +241,7 @@ describe("OKX earn adapter", () => {
   });
 
   it("fetchOkxEarnEvents filters by date range and stops past start", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
     const page = load("lending-history.json");
     // Fixture rows: 1719792000000 (2024-07-01) and 1719878400000 (2024-07-02)
     vi.stubGlobal(
@@ -120,11 +260,14 @@ describe("OKX earn adapter", () => {
     );
     expect(events).toHaveLength(1);
     expect(events[0].asset).toBe("ETH");
-    const url = String((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]);
+    const url = String(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0],
+    );
     expect(url).toContain("after=");
   });
 
   it("fetchOkxEarnEvents with accessToken", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -141,6 +284,7 @@ describe("OKX earn adapter", () => {
   });
 
   it("fetchOkxEarnEvents with accessToken HTTP error", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: false, status: 401 }),
@@ -155,6 +299,7 @@ describe("OKX earn adapter", () => {
   });
 
   it("fetch fails closed on HTTP error", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
