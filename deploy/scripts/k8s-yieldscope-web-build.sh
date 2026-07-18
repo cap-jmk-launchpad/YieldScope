@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build + import YieldScope web image into blackpearl k3s.
-# NEXT_PUBLIC_* is baked at build time — always use YieldScope Supabase (never majico).
+# NEXT_PUBLIC_* is baked at build time - always use YieldScope Supabase (never majico).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -32,16 +32,26 @@ TAR_EXCLUDES=(
   --exclude=.next
   --exclude=web/.next
   --exclude=coverage
+  --exclude=coverage-*
   --exclude=.git
   --exclude=.agents
   --exclude=.cursor
   --exclude=.codex
+  --exclude=scripts/tmp-*
   --exclude=deploy/scripts/_web-deploy.out.log
   --exclude=deploy/scripts/_web-deploy.err.log
 )
 ssh "$BUILD_HOST" 'rm -rf /tmp/yieldscope-build && mkdir -p /tmp/yieldscope-build'
+# Exit 1 = "file changed as we read it" (harmless noise from local tooling); fail on real errors.
+set +e
 tar "${TAR_EXCLUDES[@]}" -cf - -C "$ROOT" . \
   | ssh "$BUILD_HOST" 'tar -xf - -C /tmp/yieldscope-build'
+pipe_status=("${PIPESTATUS[@]}")
+set -e
+tar_ec=${pipe_status[0]:-0}
+ssh_ec=${pipe_status[1]:-0}
+[[ "$ssh_ec" -eq 0 ]] || exit "$ssh_ec"
+[[ "$tar_ec" -eq 0 || "$tar_ec" -eq 1 ]] || exit "$tar_ec"
 
 echo "==> docker build $IMAGE (SUPABASE_URL=$SU)"
 ssh "$BUILD_HOST" "set -e
