@@ -18,11 +18,16 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: engine
-      # Resolve LE-cert hostname to yieldscope-mail ClusterIP (in-cluster; avoid WAN hairpin)
+      # Bypass flaky CoreDNS (auth on engine → coredns on deck UDP timeouts).
+      # mail: LE hostname → ClusterIP (avoid WAN hairpin). db: short name used in GOTRUE_DB_DATABASE_URL.
       hostAliases:
         - ip: 10.43.250.25
           hostnames:
             - mail.yieldscope.d3bu7.com
+        - ip: 10.43.109.67
+          hostnames:
+            - db
+            - db.supabase-yieldscope.svc.cluster.local
       initContainers:
         - name: wait-db
           image: postgres:15-alpine

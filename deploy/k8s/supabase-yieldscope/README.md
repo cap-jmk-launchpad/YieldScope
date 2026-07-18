@@ -13,6 +13,10 @@ Auth SMTP is wired through GoTrue env (`GOTRUE_SMTP_*`) — no Studio UI click-t
 self-hosted **yieldscope-mail** docker-mailserver (`noreply@yieldscope.d3bu7.com` via
 `mail.yieldscope.d3bu7.com:587`). See `deploy/k8s/yieldscope-mail/README.md`.
 
+The auth Deployment pins `hostAliases` for `db` and `mail.yieldscope.d3bu7.com` to their ClusterIPs so
+GoTrue is not blocked by intermittent CoreDNS UDP timeouts (engine → deck). If the `db` Service is
+recreated and gets a new ClusterIP, update `auth-deployment.yaml` and re-apply.
+
 ## Deploy
 
 ```bash
