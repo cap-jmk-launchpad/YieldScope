@@ -16,6 +16,12 @@ export interface PersistSourceInput {
   error?: string;
   walletAddress?: string | null;
   chainId?: number;
+  /**
+   * When set, only replace events inside [mergeFromMs, mergeToMs] (inclusive)
+   * and keep existing rows outside the window. Omit for full source replace.
+   */
+  mergeFromMs?: number | null;
+  mergeToMs?: number | null;
 }
 
 export interface LedgerAggregates {
@@ -86,11 +92,23 @@ export async function persistSourceSync(
   const profileId = await ensureProfileId(input.userId, input.email);
   const admin = createAdminClient();
 
-  const { error: delErr } = await admin
+  const merge =
+    input.mergeFromMs != null &&
+    input.mergeToMs != null &&
+    Number.isFinite(input.mergeFromMs) &&
+    Number.isFinite(input.mergeToMs);
+
+  let delQuery = admin
     .from("earn_events")
     .delete()
     .eq("profile_id", profileId)
     .eq("source", input.source);
+  if (merge) {
+    delQuery = delQuery
+      .gte("earned_at", new Date(input.mergeFromMs!).toISOString())
+      .lte("earned_at", new Date(input.mergeToMs!).toISOString());
+  }
+  const { error: delErr } = await delQuery;
   if (delErr) {
     throw new LedgerPersistError(`Failed clearing prior events: ${delErr.message}`);
   }

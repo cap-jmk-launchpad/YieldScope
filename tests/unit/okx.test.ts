@@ -66,6 +66,29 @@ describe("OKX earn adapter", () => {
     expect(fetch).toHaveBeenCalled();
   });
 
+  it("fetchOkxEarnEvents filters by date range and stops past start", async () => {
+    const page = load("lending-history.json");
+    // Fixture rows: 1719792000000 (2024-07-01) and 1719878400000 (2024-07-02)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => page,
+      }),
+    );
+    const events = await fetchOkxEarnEvents(
+      { apiKey: "k", apiSecret: "s", passphrase: "p" },
+      {
+        startMs: Date.parse("2024-07-02T00:00:00.000Z"),
+        endMs: Date.parse("2024-07-02T23:59:59.999Z"),
+      },
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].asset).toBe("ETH");
+    const url = String((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]);
+    expect(url).toContain("after=");
+  });
+
   it("fetchOkxEarnEvents with accessToken", async () => {
     vi.stubGlobal(
       "fetch",

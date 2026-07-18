@@ -16,6 +16,9 @@ vi.mock("../../web/src/lib/ledger-db", () => {
   };
 });
 
+const dummyCex = { apiKey: "k", apiSecret: "s" };
+const dummyOkx = { apiKey: "k", apiSecret: "s", passphrase: "p" };
+
 describe("sync with persistence", () => {
   const original = { ...process.env };
 
@@ -34,7 +37,7 @@ describe("sync with persistence", () => {
 
   it("syncBinance fixture persists and returns ok", async () => {
     const { syncBinance, snapshot } = await import("../../web/src/lib/sync");
-    const result = await syncBinance(null, {
+    const result = await syncBinance(dummyCex, {
       userId: "u1",
       email: "a@b.c",
     });
@@ -46,7 +49,7 @@ describe("sync with persistence", () => {
 
   it("syncOkx fixture persists", async () => {
     const { syncOkx } = await import("../../web/src/lib/sync");
-    const result = await syncOkx(null, { userId: "u1" });
+    const result = await syncOkx(dummyOkx, { userId: "u1" });
     expect(result.status).toBe("ok");
     expect(result.events.length).toBeGreaterThan(0);
     expect(persistSourceSync).toHaveBeenCalledWith(
@@ -62,7 +65,7 @@ describe("sync with persistence", () => {
       chainId: 10143,
     });
     expect(result.status).toBe("ok");
-    expect(result.events.length).toBeGreaterThan(0);
+    expect(result.events.some((e) => e.amount === "2.5")).toBe(true);
     expect(persistSourceSync).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "monad_stake",
@@ -71,11 +74,41 @@ describe("sync with persistence", () => {
     );
   });
 
+  it("fixture mode without wallet never invents 2.5 MONAD", async () => {
+    const { syncMonadStake, snapshot } = await import("../../web/src/lib/sync");
+    const result = await syncMonadStake(null, { userId: "u1" });
+    expect(result.status).toBe("not_connected");
+    expect(result.events).toEqual([]);
+    expect(result.events.some((e) => e.amount === "2.5")).toBe(false);
+    expect(persistSourceSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "monad_stake",
+        status: "not_connected",
+        events: [],
+        walletAddress: null,
+      }),
+    );
+    expect(snapshot().sources.monad_stake.status).toBe("not_connected");
+  });
+
+  it("fixture mode without CEX/LUNC creds stays not_connected", async () => {
+    const { syncBinance, syncOkx, syncLuncStake } = await import(
+      "../../web/src/lib/sync"
+    );
+    expect((await syncBinance(null, { userId: "u1" })).status).toBe(
+      "not_connected",
+    );
+    expect((await syncOkx(null, { userId: "u1" })).status).toBe("not_connected");
+    expect((await syncLuncStake(null, { userId: "u1" })).status).toBe(
+      "not_connected",
+    );
+  });
+
   it("fails closed when persist fails", async () => {
     const { LedgerPersistError } = await import("../../web/src/lib/ledger-db");
     persistSourceSync.mockRejectedValueOnce(new LedgerPersistError("db down"));
     const { syncBinance } = await import("../../web/src/lib/sync");
-    const result = await syncBinance(null, { userId: "u1" });
+    const result = await syncBinance(dummyCex, { userId: "u1" });
     expect(result.status).toBe("error");
     expect(result.error).toMatch(/Persist failed/i);
   });
@@ -131,6 +164,63 @@ describe("sync with persistence", () => {
     expect(result.status).toBe("ok");
     expect(result.events).toHaveLength(1);
     vi.unstubAllGlobals();
+  });
+
+  it("syncBinance all-time passes allTime to adapter", async () => {
+    process.env.USE_FIXTURE_DEMO = "0";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ rows: [], total: 0 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { syncBinance } = await import("../../web/src/lib/sync");
+    const { resolveSyncRange } = await import("../../web/src/lib/sync-range");
+    await syncBinance(
+      { apiKey: "k", apiSecret: "s" },
+      { userId: "u1", window: resolveSyncRange({ mode: "all" }) },
+    );
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    vi.unstubAllGlobals();
+  });
+
+  it("syncBinance custom range filters fixture events", async () => {
+    const { syncBinance } = await import("../../web/src/lib/sync");
+    const { resolveSyncRange } = await import("../../web/src/lib/sync-range");
+    // Fixture has 2024-07-01 and 2024-07-02 events
+    const result = await syncBinance(dummyCex, {
+      userId: "u1",
+      window: resolveSyncRange({
+        mode: "custom",
+        from: "2024-07-02",
+        to: "2024-07-02",
+      }),
+    });
+    expect(result.status).toBe("ok");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].asset).toBe("BTC");
+    expect(persistSourceSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "binance",
+        mergeFromMs: expect.any(Number),
+        mergeToMs: expect.any(Number),
+      }),
+    );
+  });
+
+  it("syncBinance all-time does not set merge bounds", async () => {
+    const { syncBinance } = await import("../../web/src/lib/sync");
+    const { resolveSyncRange } = await import("../../web/src/lib/sync-range");
+    await syncBinance(dummyCex, {
+      userId: "u1",
+      window: resolveSyncRange({ mode: "all" }),
+    });
+    const arg = persistSourceSync.mock.calls.at(-1)?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(arg.source).toBe("binance");
+    expect(arg).not.toHaveProperty("mergeFromMs");
+    expect(arg).not.toHaveProperty("mergeToMs");
   });
 
   it("live sync surfaces adapter errors", async () => {

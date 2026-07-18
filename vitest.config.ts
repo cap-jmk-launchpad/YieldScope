@@ -13,6 +13,9 @@ const coverageInclude = [
   "web/src/lib/sync.ts",
   "web/src/lib/credentials-crypto.ts",
   "web/src/lib/credentials-db.ts",
+  "web/src/lib/prices/**/*.ts",
+  "web/src/lib/sync-range.ts",
+  "web/src/lib/earnings-charts.ts",
 ];
 
 export default defineConfig({

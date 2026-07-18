@@ -1,5 +1,16 @@
 import { createHmac } from "node:crypto";
-import type { CexCredentials, EarnEvent, FetchEarnEvents } from "./types";
+import type {
+  CexCredentials,
+  EarnEvent,
+  EarnFetchOptions,
+  FetchEarnEvents,
+} from "./types";
+import {
+  ALL_TIME_LOOKBACK_MS,
+  BINANCE_MAX_WINDOW_MS,
+  allTimeBinanceChunks,
+  chunkTimeRange,
+} from "../sync-range";
 
 const BINANCE_BASE = process.env.BINANCE_API_BASE ?? "https://api.binance.com";
 
@@ -100,11 +111,11 @@ async function signedGet(
   return res.json();
 }
 
-/**
- * Fetch Binance Simple Earn flexible reward history.
- * Pure boundary: credentials in → EarnEvent[] out. Throws on API/auth failure (fail closed).
- */
-export const fetchBinanceEarnEvents: FetchEarnEvents = async (creds) => {
+async function fetchWindow(
+  creds: CexCredentials,
+  startMs: number,
+  endMs: number,
+): Promise<EarnEvent[]> {
   const events: EarnEvent[] = [];
   let page = 1;
   const size = 100;
@@ -112,7 +123,12 @@ export const fetchBinanceEarnEvents: FetchEarnEvents = async (creds) => {
   for (;;) {
     const raw = (await signedGet(
       "/sapi/v1/simple-earn/flexible/history/rewardsRecord",
-      { current: page, size },
+      {
+        current: page,
+        size,
+        startTime: startMs,
+        endTime: endMs,
+      },
       creds,
     )) as BinanceRewardsResponse;
 
@@ -125,6 +141,66 @@ export const fetchBinanceEarnEvents: FetchEarnEvents = async (creds) => {
     }
     page += 1;
     if (page > 50) break;
+  }
+
+  return events;
+}
+
+function resolveChunks(opts?: EarnFetchOptions): {
+  chunks: Array<{ startMs: number; endMs: number }>;
+  stopAfterEmpty: boolean;
+} {
+  const now = Date.now();
+
+  // Explicit all-time: walk ~2y in ≤30-day windows; stop after empty streak.
+  if (opts?.allTime) {
+    return { chunks: allTimeBinanceChunks(now), stopAfterEmpty: true };
+  }
+
+  // Custom range bounds
+  if (opts?.startMs != null || opts?.endMs != null) {
+    const endMs = opts.endMs ?? now;
+    const startMs = opts.startMs ?? endMs - ALL_TIME_LOOKBACK_MS;
+    return {
+      chunks: chunkTimeRange(startMs, endMs),
+      stopAfterEmpty: false,
+    };
+  }
+
+  // No opts (legacy / unit tests): single ≤30-day window ending now.
+  return {
+    chunks: [{ startMs: now - BINANCE_MAX_WINDOW_MS + 1, endMs: now }],
+    stopAfterEmpty: false,
+  };
+}
+
+/**
+ * Fetch Binance Simple Earn flexible reward history.
+ * Date range via startMs/endMs; allTime walks ≤30-day chunks (API max window).
+ * Throws on API/auth failure (fail closed).
+ */
+export const fetchBinanceEarnEvents: FetchEarnEvents = async (
+  creds,
+  opts?: EarnFetchOptions,
+) => {
+  const { chunks, stopAfterEmpty } = resolveChunks(opts);
+  const seen = new Set<string>();
+  const events: EarnEvent[] = [];
+  let emptyStreak = 0;
+
+  for (const { startMs, endMs } of chunks) {
+    const batch = await fetchWindow(creds, startMs, endMs);
+    if (batch.length === 0) {
+      emptyStreak += 1;
+      if (stopAfterEmpty && emptyStreak >= 3) break;
+      continue;
+    }
+    emptyStreak = 0;
+    for (const e of batch) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      events.push(e);
+    }
   }
 
   return events;

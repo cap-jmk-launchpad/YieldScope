@@ -29,6 +29,17 @@ No Zerion sprawl. No tax engine. No APY farm browser.
 4. Paste Terra Classic `terra1…` address (or explorer link) for LUNC stake rewards.
 5. `/app/*` and sync/attest APIs are fail-closed without a session.
 
+## Sync window
+
+Dashboard sync supports **All time** (full available CEX history) or a **custom from/to date range**.
+
+| Source | Range behavior |
+|--------|----------------|
+| Binance / OKX | History filtered to the selected window (Binance walks ≤30-day API chunks) |
+| Monad / LUNC | Point-in-time pending rewards — always refreshed; date range does not apply |
+
+Last-used window preference is stored in the browser (`localStorage`).
+
 ## Fail closed
 
 Each source shows `ok | error | not_connected`. Broken adapters never invent earn rows.

@@ -67,6 +67,44 @@ describe("Binance Simple Earn adapter", () => {
     expect(fetch).toHaveBeenCalled();
     const url = String((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]);
     expect(url).toContain("signature=");
+    expect(url).toContain("startTime=");
+    expect(url).toContain("endTime=");
+  });
+
+  it("fetchBinanceEarnEvents passes custom date range", async () => {
+    const payload = load("rewards-empty.json");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => payload,
+      }),
+    );
+    const startMs = Date.parse("2024-07-01T00:00:00.000Z");
+    const endMs = Date.parse("2024-07-10T23:59:59.999Z");
+    await fetchBinanceEarnEvents(
+      { apiKey: "k", apiSecret: "s" },
+      { startMs, endMs },
+    );
+    const url = String((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]);
+    expect(url).toContain(`startTime=${startMs}`);
+    expect(url).toContain(`endTime=${endMs}`);
+  });
+
+  it("fetchBinanceEarnEvents allTime walks multiple windows", async () => {
+    const empty = load("rewards-empty.json");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => empty,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchBinanceEarnEvents(
+      { apiKey: "k", apiSecret: "s" },
+      { allTime: true },
+    );
+    // Stops after 3 consecutive empty windows when walking all-time
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(10);
   });
 
   it("fetchBinanceEarnEvents with accessToken uses Bearer", async () => {

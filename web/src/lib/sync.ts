@@ -3,12 +3,24 @@ import { fetchBinanceEarnEvents } from "./adapters/binance";
 import { fetchOkxEarnEvents } from "./adapters/okx";
 import { fetchMonadStakeEarnEvents } from "./adapters/monad-stake";
 import { fetchLuncStakeEarnEvents } from "./adapters/lunc-stake";
-import type { AdapterResult, CexCredentials, EarnEvent, SourceId } from "./adapters/types";
+import type {
+  AdapterResult,
+  CexCredentials,
+  EarnEvent,
+  EarnFetchOptions,
+  SourceId,
+} from "./adapters/types";
 import { replaceSourceEvents, getLedger } from "./ledger-store";
 import {
   LedgerPersistError,
   persistSourceSync,
 } from "./ledger-db";
+import {
+  type ResolvedSyncWindow,
+  type SyncRange,
+  filterEventsByWindow,
+  resolveSyncRange,
+} from "./sync-range";
 import { join } from "node:path";
 
 function useFixtures(): boolean {
@@ -30,6 +42,29 @@ export interface SyncContext {
   walletAddress?: string | null;
   chainId?: number;
   luncAddress?: string | null;
+  /** Resolved sync window; default all-time when omitted. */
+  window?: ResolvedSyncWindow;
+}
+
+function fetchOptsFromWindow(window?: ResolvedSyncWindow): EarnFetchOptions {
+  if (!window || window.mode === "all") {
+    return { allTime: true };
+  }
+  return {
+    startMs: window.fromMs,
+    endMs: window.toMs,
+  };
+}
+
+function mergeOpts(window?: ResolvedSyncWindow): {
+  mergeFromMs?: number | null;
+  mergeToMs?: number | null;
+} {
+  if (!window || window.mode === "all") return {};
+  return {
+    mergeFromMs: window.fromMs,
+    mergeToMs: window.toMs,
+  };
 }
 
 async function loadFixtureEvents(
@@ -78,7 +113,12 @@ async function commitSource(
   source: SourceId,
   result: AdapterResult,
 ): Promise<AdapterResult> {
-  replaceSourceEvents(source, result);
+  const merge = mergeOpts(ctx.window);
+  // Point-in-time sources always full-replace (no historical range).
+  const isPointInTime = source === "monad_stake" || source === "lunc_stake";
+  const storeMerge = isPointInTime ? {} : merge;
+
+  replaceSourceEvents(source, result, storeMerge);
 
   try {
     await persistSourceSync({
@@ -91,6 +131,7 @@ async function commitSource(
       walletAddress:
         source === "monad_stake" ? ctx.walletAddress : undefined,
       chainId: ctx.chainId,
+      ...storeMerge,
     });
   } catch (err) {
     const message =
@@ -118,10 +159,8 @@ export async function syncBinance(
   ctx: SyncContext,
 ): Promise<AdapterResult> {
   try {
-    if (useFixtures()) {
-      const events = await loadFixtureEvents("binance");
-      return commitSource(ctx, "binance", { status: "ok", events });
-    }
+    // Credentials required even in fixture mode — never invent earn rows for
+    // users who have not connected a source.
     if (!creds) {
       return commitSource(ctx, "binance", {
         status: "not_connected",
@@ -129,8 +168,24 @@ export async function syncBinance(
         error: "Not connected",
       });
     }
-    const events = await fetchBinanceEarnEvents(creds);
-    return commitSource(ctx, "binance", { status: "ok", events });
+    if (useFixtures()) {
+      const events = filterEventsByWindow(
+        await loadFixtureEvents("binance"),
+        ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+      );
+      return commitSource(ctx, "binance", { status: "ok", events });
+    }
+    const events = await fetchBinanceEarnEvents(
+      creds,
+      fetchOptsFromWindow(ctx.window),
+    );
+    return commitSource(ctx, "binance", {
+      status: "ok",
+      events: filterEventsByWindow(
+        events,
+        ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+      ),
+    });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     return commitSource(ctx, "binance", { status: "error", events: [], error });
@@ -142,10 +197,6 @@ export async function syncOkx(
   ctx: SyncContext,
 ): Promise<AdapterResult> {
   try {
-    if (useFixtures()) {
-      const events = await loadFixtureEvents("okx");
-      return commitSource(ctx, "okx", { status: "ok", events });
-    }
     if (!creds) {
       return commitSource(ctx, "okx", {
         status: "not_connected",
@@ -153,34 +204,56 @@ export async function syncOkx(
         error: "Not connected",
       });
     }
-    const events = await fetchOkxEarnEvents(creds);
-    return commitSource(ctx, "okx", { status: "ok", events });
+    if (useFixtures()) {
+      const events = filterEventsByWindow(
+        await loadFixtureEvents("okx"),
+        ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+      );
+      return commitSource(ctx, "okx", { status: "ok", events });
+    }
+    const events = await fetchOkxEarnEvents(
+      creds,
+      fetchOptsFromWindow(ctx.window),
+    );
+    return commitSource(ctx, "okx", {
+      status: "ok",
+      events: filterEventsByWindow(
+        events,
+        ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+      ),
+    });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     return commitSource(ctx, "okx", { status: "error", events: [], error });
   }
 }
 
+/**
+ * Monad staking is a point-in-time pending-rewards snapshot — date range is ignored.
+ * Always refreshes current unclaimed/accrued rewards for the connected wallet.
+ */
 export async function syncMonadStake(
   address: Address | null,
   ctx: SyncContext,
 ): Promise<AdapterResult> {
   const walletCtx: SyncContext = {
     ...ctx,
-    walletAddress: address ?? ctx.walletAddress,
+    walletAddress: address ?? null,
     chainId: ctx.chainId ?? 10143,
   };
   try {
-    if (useFixtures()) {
-      const events = await loadFixtureEvents("monad_stake");
-      return commitSource(walletCtx, "monad_stake", { status: "ok", events });
-    }
+    // Wallet required even in fixture mode — demo 2.5 MONAD must not appear
+    // for users who never connected a wallet.
     if (!address) {
       return commitSource(walletCtx, "monad_stake", {
         status: "not_connected",
         events: [],
         error: "Wallet not connected",
       });
+    }
+    if (useFixtures()) {
+      const events = await loadFixtureEvents("monad_stake");
+      return commitSource(walletCtx, "monad_stake", { status: "ok", events });
     }
     const rpcUrl =
       process.env.MONAD_RPC_URL ?? "https://testnet-rpc.monad.xyz";
@@ -205,21 +278,24 @@ export async function syncMonadStake(
   }
 }
 
+/**
+ * LUNC pending rewards are point-in-time via LCD — date range is ignored.
+ */
 export async function syncLuncStake(
   addressOrLink: string | null,
   ctx: SyncContext,
 ): Promise<AdapterResult> {
   try {
-    if (useFixtures()) {
-      const events = await loadFixtureEvents("lunc_stake");
-      return commitSource(ctx, "lunc_stake", { status: "ok", events });
-    }
     if (!addressOrLink) {
       return commitSource(ctx, "lunc_stake", {
         status: "not_connected",
         events: [],
         error: "LUNC address not provided",
       });
+    }
+    if (useFixtures()) {
+      const events = await loadFixtureEvents("lunc_stake");
+      return commitSource(ctx, "lunc_stake", { status: "ok", events });
     }
     const events = await fetchLuncStakeEarnEvents(addressOrLink, {
       lcdUrl: process.env.LUNC_LCD_URL,
@@ -233,6 +309,16 @@ export async function syncLuncStake(
       error,
     });
   }
+}
+
+export function buildSyncContext(
+  base: Omit<SyncContext, "window">,
+  range?: SyncRange | null,
+): SyncContext {
+  return {
+    ...base,
+    window: resolveSyncRange(range),
+  };
 }
 
 export function snapshot() {

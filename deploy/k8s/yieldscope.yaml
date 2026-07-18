@@ -13,7 +13,9 @@ metadata:
 data:
   NEXT_PUBLIC_MONAD_RPC_URL: "https://testnet-rpc.monad.xyz"
   NEXT_PUBLIC_CHECKPOINT_ADDRESS: "0x0000000000000000000000000000000000000000"
-  USE_FIXTURE_DEMO: "1"
+  # Must stay "0" in prod — fixture mode used to invent 2.5 MONAD earn rows
+  # for every user who synced without a connected wallet.
+  USE_FIXTURE_DEMO: "0"
   NEXT_PUBLIC_SUPABASE_URL: "https://supabase.yieldscope.d3bu7.com"
 ---
 apiVersion: apps/v1
@@ -131,3 +133,47 @@ spec:
                 name: yieldscope-web
                 port:
                   number: 3000
+---
+# Every minute: upsert latest Binance 1m (+1d) candles into Postgres ohlcv.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: yieldscope-price-sync
+  namespace: yieldscope
+  labels:
+    app.kubernetes.io/name: yieldscope
+    app.kubernetes.io/component: price-sync
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: yieldscope-price-sync
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: sync
+              image: curlimages/curl:8.12.1
+              env:
+                - name: PRICE_SYNC_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: yieldscope-secrets
+                      key: PRICE_SYNC_SECRET
+              args:
+                - -fsS
+                - -X
+                - POST
+                - -H
+                - "Content-Type: application/json"
+                - -H
+                - "x-price-sync-secret: $(PRICE_SYNC_SECRET)"
+                - -d
+                - "{}"
+                - http://yieldscope-web:3000/api/prices/sync

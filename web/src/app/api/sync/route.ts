@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { CexCredentials } from "@/lib/adapters/types";
 import { requireUser } from "@/lib/auth/require-user";
 import {
   loadBinanceCredentials,
@@ -9,11 +8,13 @@ import {
 } from "@/lib/credentials-db";
 import { loadDbLedger, LedgerPersistError } from "@/lib/ledger-db";
 import {
+  buildSyncContext,
   syncBinance,
   syncLuncStake,
   syncMonadStake,
   syncOkx,
 } from "@/lib/sync";
+import { parseSyncRangeBody, resolveSyncRange, SyncRangeError } from "@/lib/sync-range";
 import type { Address } from "viem";
 
 export async function POST(req: Request) {
@@ -22,47 +23,48 @@ export async function POST(req: Request) {
 
   const body = (await req.json().catch(() => ({}))) as {
     source?: "binance" | "okx" | "monad_stake" | "lunc_stake" | "all";
-    binance?: CexCredentials;
-    okx?: CexCredentials;
     address?: string;
-    luncAddress?: string;
     chainId?: number;
   };
 
-  const storedBinance =
-    body.binance ?? (await loadBinanceCredentials(gate.user.id));
-  const storedOkx = body.okx ?? (await loadOkxCredentials(gate.user.id));
-  const storedLunc =
-    body.luncAddress ??
-    (await loadLuncAddress(gate.user.id)) ??
-    process.env.LUNC_DEMO_ADDRESS ??
-    null;
-  const storedWallet =
-    body.address ??
-    (await loadMonadWalletAddress(gate.user.id)) ??
-    process.env.MONAD_DEMO_ADDRESS ??
-    null;
+  let range;
+  try {
+    range = parseSyncRangeBody(body);
+    resolveSyncRange(range);
+  } catch (err) {
+    const message =
+      err instanceof SyncRangeError ? err.message : "Invalid sync range";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 
-  const ctx = {
-    userId: gate.user.id,
-    email: gate.user.email,
-    walletAddress: storedWallet,
-    chainId: body.chainId ?? 10143,
-    luncAddress: storedLunc,
-  };
+  // Only per-user saved credentials / wallet — never shared env demo keys or
+  // MONAD_DEMO_ADDRESS / LUNC_DEMO_ADDRESS (those leak into every sync).
+  const storedBinance = await loadBinanceCredentials(gate.user.id);
+  const storedOkx = await loadOkxCredentials(gate.user.id);
+  const storedLunc = await loadLuncAddress(gate.user.id);
+  const storedWallet =
+    body.address ?? (await loadMonadWalletAddress(gate.user.id)) ?? null;
+
+  const ctx = buildSyncContext(
+    {
+      userId: gate.user.id,
+      email: gate.user.email,
+      walletAddress: storedWallet,
+      chainId: body.chainId ?? 10143,
+      luncAddress: storedLunc,
+    },
+    range,
+  );
 
   const source = body.source ?? "all";
   const results: Record<string, unknown> = {};
 
   try {
     if (source === "binance" || source === "all") {
-      results.binance = await syncBinance(
-        storedBinance ?? readEnvBinance(),
-        ctx,
-      );
+      results.binance = await syncBinance(storedBinance, ctx);
     }
     if (source === "okx" || source === "all") {
-      results.okx = await syncOkx(storedOkx ?? readEnvOkx(), ctx);
+      results.okx = await syncOkx(storedOkx, ctx);
     }
     if (source === "monad_stake" || source === "all") {
       const address = storedWallet as Address | null;
@@ -97,30 +99,12 @@ export async function POST(req: Request) {
     const message =
       err instanceof LedgerPersistError
         ? err.message
-        : err instanceof Error
+        : err instanceof SyncRangeError
           ? err.message
-          : "Sync failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+          : err instanceof Error
+            ? err.message
+            : "Sync failed";
+    const status = err instanceof SyncRangeError ? 400 : 502;
+    return NextResponse.json({ error: message }, { status });
   }
-}
-
-function readEnvBinance(): CexCredentials | null {
-  const accessToken = process.env.BINANCE_ACCESS_TOKEN;
-  const apiKey = process.env.BINANCE_API_KEY;
-  const apiSecret = process.env.BINANCE_API_SECRET;
-  if (accessToken) return { apiKey: "", apiSecret: "", accessToken };
-  if (apiKey && apiSecret) return { apiKey, apiSecret };
-  return null;
-}
-
-function readEnvOkx(): CexCredentials | null {
-  const accessToken = process.env.OKX_ACCESS_TOKEN;
-  const apiKey = process.env.OKX_API_KEY;
-  const apiSecret = process.env.OKX_API_SECRET;
-  const passphrase = process.env.OKX_PASSPHRASE;
-  if (accessToken) return { apiKey: "", apiSecret: "", accessToken };
-  if (apiKey && apiSecret && passphrase) {
-    return { apiKey, apiSecret, passphrase };
-  }
-  return null;
 }

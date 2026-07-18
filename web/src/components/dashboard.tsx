@@ -395,7 +395,7 @@ export function Dashboard({
       <EarningsCharts
         events={ledger?.events ?? []}
         convertAmount={convertAmount}
-        displayCurrency={activeCurrency}
+        displayCurrency={chartDisplayCurrency}
       />
 
       {ledger?.aggregates?.byAsset && ledger.aggregates.byAsset.length > 0 ? (

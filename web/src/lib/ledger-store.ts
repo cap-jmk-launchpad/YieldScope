@@ -40,17 +40,32 @@ export function getLedger(): LedgerSnapshot {
 export function replaceSourceEvents(
   source: SourceId,
   result: { status: SourceStatus; events: EarnEvent[]; error?: string },
+  opts?: { mergeFromMs?: number | null; mergeToMs?: number | null },
 ): LedgerSnapshot {
   const ledger = getLedger();
-  const others = ledger.events.filter((e) => e.source !== source);
-  ledger.events = [...others, ...result.events].sort(
+  const fromMs = opts?.mergeFromMs;
+  const toMs = opts?.mergeToMs;
+  const merge =
+    fromMs != null && toMs != null && Number.isFinite(fromMs) && Number.isFinite(toMs);
+
+  const others = ledger.events.filter((e) => {
+    if (e.source !== source) return true;
+    if (!merge) return false;
+    const t = Date.parse(e.earnedAt);
+    // Keep events outside the synced window
+    return t < fromMs! || t > toMs!;
+  });
+
+  const merged = [...others, ...result.events].sort(
     (a, b) => new Date(b.earnedAt).getTime() - new Date(a.earnedAt).getTime(),
   );
+  ledger.events = merged;
+  const sourceCount = merged.filter((e) => e.source === source).length;
   ledger.sources[source] = {
     status: result.status,
     error: result.error,
     lastSyncedAt: new Date().toISOString(),
-    eventCount: result.events.length,
+    eventCount: sourceCount,
   };
   ledger.updatedAt = new Date().toISOString();
   return ledger;

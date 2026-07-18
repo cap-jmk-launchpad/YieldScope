@@ -30,4 +30,16 @@ export interface CexCredentials {
   accessToken?: string;
 }
 
-export type FetchEarnEvents = (creds: CexCredentials) => Promise<EarnEvent[]>;
+export interface EarnFetchOptions {
+  /** Inclusive start (ms epoch). Omit with endMs for all-time / adapter default. */
+  startMs?: number | null;
+  /** Inclusive end (ms epoch). */
+  endMs?: number | null;
+  /** When true, paginate the full available history (CEX). */
+  allTime?: boolean;
+}
+
+export type FetchEarnEvents = (
+  creds: CexCredentials,
+  opts?: EarnFetchOptions,
+) => Promise<EarnEvent[]>;

@@ -1,5 +1,10 @@
 import { createHmac } from "node:crypto";
-import type { CexCredentials, EarnEvent, FetchEarnEvents } from "./types";
+import type {
+  CexCredentials,
+  EarnEvent,
+  EarnFetchOptions,
+  FetchEarnEvents,
+} from "./types";
 
 const OKX_BASE = process.env.OKX_API_BASE ?? "https://www.okx.com";
 
@@ -110,11 +115,23 @@ async function okxGet(
 
 /**
  * Fetch OKX savings / earn interest history.
+ * Optional startMs/endMs filters results; pagination stops once past startMs.
  * Throws on API/auth failure — callers must fail closed (no fake rows).
  */
-export const fetchOkxEarnEvents: FetchEarnEvents = async (creds) => {
+export const fetchOkxEarnEvents: FetchEarnEvents = async (
+  creds,
+  opts?: EarnFetchOptions,
+) => {
   const events: EarnEvent[] = [];
   let after: string | undefined;
+  const endMs = opts?.endMs ?? null;
+  const startMs = opts?.startMs ?? null;
+
+  // Seed cursor: OKX `after` returns records earlier than ts (older pages).
+  // Start just after endMs so the first page is within the window.
+  if (endMs != null) {
+    after = String(endMs + 1);
+  }
 
   for (let page = 0; page < 50; page += 1) {
     const query: Record<string, string> = { limit: "100" };
@@ -126,9 +143,21 @@ export const fetchOkxEarnEvents: FetchEarnEvents = async (creds) => {
       creds,
     );
     const batch = normalizeOkxEarn(raw);
-    events.push(...batch);
-
     if (batch.length === 0) break;
+
+    let hitOlderThanStart = false;
+    for (const e of batch) {
+      const t = Date.parse(e.earnedAt);
+      if (endMs != null && t > endMs) continue;
+      if (startMs != null && t < startMs) {
+        hitOlderThanStart = true;
+        continue;
+      }
+      events.push(e);
+    }
+
+    if (hitOlderThanStart && startMs != null) break;
+
     const lastTs = raw.data?.[raw.data.length - 1]?.ts;
     if (!lastTs || batch.length < 100) break;
     after = lastTs;
