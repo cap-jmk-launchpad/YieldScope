@@ -94,10 +94,18 @@ kubectl apply -f deploy/k8s/yieldscope.yaml
 # Point DNS yieldscope.d3bu7.com at the ingress / load balancer
 ```
 
-Build/push image (replace org):
+Build/import image (NEXT_PUBLIC_* is baked at **build** time — must be YieldScope, not majico):
 
 ```bash
-docker build -t ghcr.io/REPLACE_ORG/yieldscope-web:latest -f web/Dockerfile web
+# Preferred: build on blackpearl + import into k3s + restart
+export KUBECONFIG="$HOME/.kube/config-homelab"
+bash deploy/scripts/k8s-yieldscope-web-build.sh
+
+# Or manual (repo root as context — Dockerfile expects monorepo layout):
+docker build -t ghcr.io/cap-jmk-real/yieldscope-web:latest \
+  --build-arg NEXT_PUBLIC_SUPABASE_URL=https://supabase.yieldscope.d3bu7.com \
+  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY" \
+  -f web/Dockerfile .
 ```
 
 Supabase SQL: `supabase/migrations/202607160001_earn_ledger.sql` (run against engine Postgres when ready). Prototype ships with an in-memory ledger store for local demos.
