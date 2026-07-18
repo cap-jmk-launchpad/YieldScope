@@ -1,0 +1,108 @@
+{
+  "tx_responses": [
+    {
+      "txhash": "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+      "height": "29536278",
+      "code": 0,
+      "timestamp": "2026-07-17T12:05:07Z",
+      "events": [
+        {
+          "type": "withdraw_rewards",
+          "attributes": [
+            {
+              "key": "amount",
+              "value": "131728628uluna,418681uusd"
+            },
+            {
+              "key": "validator",
+              "value": "terravaloper108lmrztvc3pc3w774shgvpry4d3lf79k2ummna"
+            },
+            {
+              "key": "delegator",
+              "value": "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"
+            },
+            {
+              "key": "msg_index",
+              "value": "0"
+            }
+          ]
+        },
+        {
+          "type": "withdraw_rewards",
+          "attributes": [
+            {
+              "key": "amount",
+              "value": "192292315uluna"
+            },
+            {
+              "key": "validator",
+              "value": "terravaloper1wp5w0ldjequv2wpyujzd0eydt3fhtdqyx5ffr5"
+            },
+            {
+              "key": "delegator",
+              "value": "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"
+            },
+            {
+              "key": "msg_index",
+              "value": "1"
+            }
+          ]
+        }
+      ],
+      "tx": {
+        "body": {
+          "messages": [
+            { "@type": "/cosmos.authz.v1beta1.MsgExec" }
+          ]
+        }
+      }
+    },
+    {
+      "txhash": "FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210",
+      "height": "29520000",
+      "code": 0,
+      "timestamp": "2026-06-01T12:00:00Z",
+      "events": [
+        {
+          "type": "withdraw_rewards",
+          "attributes": [
+            {
+              "key": "amount",
+              "value": "1000000uluna"
+            },
+            {
+              "key": "validator",
+              "value": "terravaloper1abc"
+            },
+            {
+              "key": "delegator",
+              "value": "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "txhash": "00000000000000000000000000000000000000000000000000000000000000FF",
+      "height": "29000000",
+      "code": 1,
+      "timestamp": "2026-01-01T00:00:00Z",
+      "events": [
+        {
+          "type": "withdraw_rewards",
+          "attributes": [
+            {
+              "key": "amount",
+              "value": "999999999uluna"
+            },
+            {
+              "key": "delegator",
+              "value": "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "total": "3"
+}

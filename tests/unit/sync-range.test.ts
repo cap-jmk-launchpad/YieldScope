@@ -66,9 +66,17 @@ describe("sync-range", () => {
       const w = resolveSyncRange(p);
       expect(w.toMs! - w.fromMs!).toBeLessThanOrEqual(CEX_TRANSPORT_MAX_SPAN_MS);
     }
-    // LUNC ignores split — single call
+    // LUNC also splits multi-year custom ranges (≤90d transport windows)
     expect(
       syncRangesForSource("lunc_stake", {
+        mode: "custom",
+        from: "2022-01-01",
+        to: "2026-07-18",
+      }).length,
+    ).toBeGreaterThan(10);
+    // Monad stays a single call (point-in-time)
+    expect(
+      syncRangesForSource("monad_stake", {
         mode: "custom",
         from: "2022-01-01",
         to: "2026-07-18",
@@ -232,7 +240,8 @@ describe("sync-range", () => {
       from: "2024-01-01",
       to: "2024-01-02",
     });
-    expect(isPointInTimeSource("lunc_stake")).toBe(true);
+    expect(isPointInTimeSource("lunc_stake")).toBe(false);
+    expect(isPointInTimeSource("monad_stake")).toBe(true);
     expect(isPointInTimeSource("binance")).toBe(false);
     expect(ledgerEventsForDisplay([{ id: 1 }, { id: 2 }])).toEqual([
       { id: 1 },

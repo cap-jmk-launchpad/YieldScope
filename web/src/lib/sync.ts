@@ -101,7 +101,7 @@ export type CexPersistPlan = {
  */
 export async function resolveCexSyncPlan(
   ctx: SyncContext,
-  source: "binance" | "okx",
+  source: "binance" | "okx" | "lunc_stake",
   nowMs = Date.now(),
 ): Promise<CexPersistPlan> {
   const window =
@@ -408,7 +408,9 @@ export async function syncMonadStake(
 }
 
 /**
- * LUNC pending rewards are point-in-time via LCD — date range is ignored.
+ * LUNC: crawl claimed withdraw-reward txs for the sync window, plus current
+ * pending when the window reaches “now”. Persist plan matches CEX
+ * (merge / replace / upsert).
  */
 export async function syncLuncStake(
   addressOrLink: string | null,
@@ -422,14 +424,30 @@ export async function syncLuncStake(
         error: "LUNC address not provided",
       });
     }
+    const plan = await resolveCexSyncPlan(ctx, "lunc_stake");
     if (useFixtures()) {
-      const events = await loadFixtureEvents("lunc_stake");
-      return commitSource(ctx, "lunc_stake", { status: "ok", events });
+      const events = filterEventsByWindow(
+        await loadFixtureEvents("lunc_stake"),
+        ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+      );
+      return commitSource(ctx, "lunc_stake", { status: "ok", events }, plan);
     }
     const events = await fetchLuncStakeEarnEvents(addressOrLink, {
       lcdUrl: process.env.LUNC_LCD_URL,
+      ...plan.opts,
     });
-    return commitSource(ctx, "lunc_stake", { status: "ok", events });
+    return commitSource(
+      ctx,
+      "lunc_stake",
+      {
+        status: "ok",
+        events: filterEventsByWindow(
+          events,
+          ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+        ),
+      },
+      plan,
+    );
   } catch (err) {
     const error = userFacingAdapterError(
       err,

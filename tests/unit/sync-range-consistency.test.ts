@@ -164,61 +164,71 @@ describe("FE ↔ API ↔ persist ↔ display range consistency", () => {
     ).toBe(true);
   });
 
-  it("LUNC ignores custom range and full-replaces pending snapshot", async () => {
+  it("LUNC respects custom range and merge-replaces inside the window", async () => {
     const { syncLuncStake } = await import("../../web/src/lib/sync");
     const window = resolveSyncRange({
       mode: "custom",
-      from: "2020-01-01",
-      to: "2020-01-31",
+      from: "2024-07-01",
+      to: "2024-07-31",
     });
 
     replaceSourceEvents("lunc_stake", {
       status: "ok",
       events: [
         ev({
-          id: "lunc_stake:stale",
+          id: "lunc_stake:outside",
           source: "lunc_stake",
           asset: "LUNC",
           amount: "1",
           earnedAt: "2020-01-15T00:00:00.000Z",
         }),
+        ev({
+          id: "lunc_stake:in-window-stale",
+          source: "lunc_stake",
+          asset: "LUNC",
+          amount: "2",
+          earnedAt: "2024-07-15T00:00:00.000Z",
+        }),
       ],
     });
 
+    // Fixture demo path: pending rows dated 2024-07-01 fall inside the window.
+    process.env.USE_FIXTURE_DEMO = "1";
     const result = await syncLuncStake(
       "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
       { userId: "u1", window },
     );
     expect(result.status).toBe("ok");
     expect(result.events.length).toBeGreaterThan(0);
-    // Fixture earnedAt is 2024-07-01 — outside the custom window, still returned.
     expect(
       result.events.every((e) => e.earnedAt.startsWith("2024-07-01")),
     ).toBe(true);
-    expect(filterEventsByWindow(result.events, window)).toHaveLength(0);
+    expect(filterEventsByWindow(result.events, window).length).toBe(
+      result.events.length,
+    );
 
     expect(persistSourceSync).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "lunc_stake",
-        persistMode: "replace",
+        persistMode: "merge",
+        mergeFromMs: window.fromMs,
+        mergeToMs: window.toMs,
         syncMeta: expect.objectContaining({
-          pointInTime: true,
-          rangeIgnored: true,
+          pointInTime: false,
+          rangeIgnored: false,
           rangeMode: "custom",
         }),
       }),
     );
-    const arg = persistSourceSync.mock.calls.at(-1)?.[0] as Record<
-      string,
-      unknown
-    >;
-    expect(arg).not.toHaveProperty("mergeFromMs");
 
     const displayed = ledgerEventsForDisplay(getLedger().events).filter(
       (e) => e.source === "lunc_stake",
     );
-    expect(displayed.some((e) => e.id === "lunc_stake:stale")).toBe(false);
-    expect(displayed.length).toBe(result.events.length);
+    expect(displayed.some((e) => e.id === "lunc_stake:outside")).toBe(true);
+    expect(displayed.some((e) => e.id === "lunc_stake:in-window-stale")).toBe(
+      false,
+    );
+    expect(displayed.length).toBe(1 + result.events.length);
   });
 
   it("ledger-store merge + display stay consistent for a chosen window", () => {

@@ -507,15 +507,15 @@ export function Dashboard({
           ? forceFullRefresh
             ? "all time · full history"
             : "all time"
-          : `${range.from} → ${range.to} (CEX)`;
+          : `${range.from} → ${range.to}`;
 
       if (sourceErrors.length > 0) {
         setMessage(
-          `Sync finished with errors (${modeLabel}). LUNC/Monad = current pending only (not historical claims). ${sourceErrors.join(" · ")}`,
+          `Sync finished with errors (${modeLabel}). Monad = current pending only. ${sourceErrors.join(" · ")}`,
         );
       } else {
         setMessage(
-          `Sync finished (${modeLabel}). LUNC/Monad store current pending rewards only — not multi-year claim history.`,
+          `Sync finished (${modeLabel}). LUNC includes claimed on-chain rewards in range plus current pending when the range reaches today; Monad is pending-only.`,
         );
       }
       if (forceFullRefresh) setForceFullRefresh(false);
@@ -746,14 +746,15 @@ export function Dashboard({
           </label>
         ) : null}
         <p className="sync-range-hint">
-          Sync window applies to Binance and OKX history (UTC day bounds). The
-          tables below show your full stored ledger after sync — not a filtered
-          preview of the picker. Monad stake and LUNC wallet only refresh
-          current pending rewards from the chain (LCD has no multi-year claim
-          history). After the first sync, All time only picks up new exchange
-          rewards unless you re-download full history.
+          Sync window applies to Binance, OKX, and LUNC claim history (UTC day
+          bounds). The tables below show your full stored ledger after sync —
+          not a filtered preview of the picker. LUNC also refreshes current
+          pending rewards when the range includes today. Monad stake only
+          refreshes current pending (no claim history). After the first sync,
+          All time only picks up new rewards unless you re-download full
+          history.
           {selectedWindowLabel
-            ? ` Selected CEX window: ${selectedWindowLabel}.`
+            ? ` Selected window: ${selectedWindowLabel}.`
             : ""}
         </p>
       </fieldset>
@@ -798,7 +799,7 @@ export function Dashboard({
               : agg
                 ? `Σ ${agg.totalAmount} (native)`
                 : "";
-          const isPointInTime = id === "monad_stake" || id === "lunc_stake";
+          const isPointInTime = id === "monad_stake";
           return (
             <div
               key={id}
@@ -822,6 +823,8 @@ export function Dashboard({
               </span>
               {isPointInTime ? (
                 <span className="source-hint">Current pending only</span>
+              ) : id === "lunc_stake" ? (
+                <span className="source-hint">Claims + pending</span>
               ) : null}
               {displayError ? (
                 <span className="source-error">{displayError}</span>

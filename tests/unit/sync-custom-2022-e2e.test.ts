@@ -1,6 +1,6 @@
 /**
  * API-level e2e: custom sync from 2022-01-01 through mocked adapters.
- * Proves FE range → plan → chunked CEX fetch → LUNC pending-only → ledger.
+ * Proves FE range → plan → chunked CEX/LUNC fetch → ledger.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -106,7 +106,7 @@ describe("e2e: custom sync 2022-01-01 → now (mocked adapters)", () => {
 
     expect(binanceParts.length).toBeGreaterThan(10);
     expect(okxParts.length).toBe(binanceParts.length);
-    expect(luncParts).toEqual([range]);
+    expect(luncParts.length).toBe(binanceParts.length);
 
     // Each transport window itself chunks into ≤30d Binance API windows
     const sample = resolveSyncRange(binanceParts[0]);
@@ -115,12 +115,13 @@ describe("e2e: custom sync 2022-01-01 → now (mocked adapters)", () => {
     expect(apiChunks.length).toBeLessThanOrEqual(4);
   });
 
-  it("Binance/OKX fetch each transport window; LUNC ignores range; ledger consistent", async () => {
+  it("Binance/OKX/LUNC fetch each transport window; ledger consistent", async () => {
     const { syncBinance, syncOkx, syncLuncStake, buildSyncContext } =
       await import("../../web/src/lib/sync");
 
     const range = buildSyncRangeFromUi("custom", "2022-01-01", "2026-07-18");
     const parts = syncRangesForSource("binance", range);
+    const luncParts = syncRangesForSource("lunc_stake", range);
 
     fetchBinanceEarnEvents.mockImplementation(
       async (_creds: unknown, opts: { startMs?: number; endMs?: number }) => [
@@ -142,18 +143,19 @@ describe("e2e: custom sync 2022-01-01 → now (mocked adapters)", () => {
         }),
       ],
     );
-    fetchLuncStakeEarnEvents.mockResolvedValue([
-      ev({
-        id: "lunc_stake:pending",
-        source: "lunc_stake",
-        asset: "LUNC",
-        amount: "3",
-        // Outside the custom window — still kept (point-in-time).
-        earnedAt: new Date().toISOString(),
-      }),
-    ]);
+    fetchLuncStakeEarnEvents.mockImplementation(
+      async (_addr: unknown, opts?: { startMs?: number; endMs?: number }) => [
+        ev({
+          id: `lunc_stake:claim:${opts?.startMs ?? 0}`,
+          source: "lunc_stake",
+          asset: "LUNC",
+          amount: "3",
+          earnedAt: new Date(opts?.startMs ?? 0).toISOString(),
+          rawType: "withdraw_delegator_reward",
+        }),
+      ],
+    );
 
-    // Seed an out-of-window CEX row that merge must preserve.
     replaceSourceEvents("binance", {
       status: "ok",
       events: [
@@ -177,14 +179,16 @@ describe("e2e: custom sync 2022-01-01 → now (mocked adapters)", () => {
       expect(o.status).toBe("ok");
     }
 
-    // LUNC: single call with the full custom range (ignored).
-    const luncCtx = buildSyncContext({ userId: "u1" }, range);
-    const lunc = await syncLuncStake("terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a", luncCtx);
-    expect(lunc.status).toBe("ok");
-    expect(lunc.events).toHaveLength(1);
-    expect(fetchLuncStakeEarnEvents).toHaveBeenCalledTimes(1);
+    for (const part of luncParts) {
+      const luncCtx = buildSyncContext({ userId: "u1" }, part);
+      const lunc = await syncLuncStake(
+        "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
+        luncCtx,
+      );
+      expect(lunc.status).toBe("ok");
+    }
+    expect(fetchLuncStakeEarnEvents).toHaveBeenCalledTimes(luncParts.length);
 
-    // Adapters saw windowed opts for every transport part
     expect(fetchBinanceEarnEvents.mock.calls.length).toBe(parts.length);
     expect(fetchOkxEarnEvents.mock.calls.length).toBe(parts.length);
     for (const call of fetchBinanceEarnEvents.mock.calls) {
@@ -200,13 +204,12 @@ describe("e2e: custom sync 2022-01-01 → now (mocked adapters)", () => {
     const ledger = getLedger();
     const ids = ledger.events.map((e) => e.id);
     expect(ids).toContain("binance:pre-2022");
-    expect(ids).toContain("lunc_stake:pending");
-    expect(ids.some((id) => id.startsWith("binance:") && id !== "binance:pre-2022")).toBe(
-      true,
-    );
+    expect(ids.some((id) => id.startsWith("lunc_stake:claim:"))).toBe(true);
+    expect(
+      ids.some((id) => id.startsWith("binance:") && id !== "binance:pre-2022"),
+    ).toBe(true);
     expect(ids.some((id) => id.startsWith("okx:"))).toBe(true);
 
-    // Merge persist for CEX; replace for LUNC
     expect(
       persistSourceSync.mock.calls.some(
         (c) =>
@@ -218,11 +221,11 @@ describe("e2e: custom sync 2022-01-01 → now (mocked adapters)", () => {
     expect(
       persistSourceSync.mock.calls.some(
         (c) =>
-          (c[0] as { source: string; persistMode: string; syncMeta?: { rangeIgnored?: boolean } })
-            .source === "lunc_stake" &&
-          (c[0] as { persistMode: string }).persistMode === "replace" &&
+          (c[0] as { source: string; persistMode: string }).source ===
+            "lunc_stake" &&
+          (c[0] as { persistMode: string }).persistMode === "merge" &&
           (c[0] as { syncMeta?: { rangeIgnored?: boolean } }).syncMeta
-            ?.rangeIgnored === true,
+            ?.rangeIgnored !== true,
       ),
     ).toBe(true);
   });

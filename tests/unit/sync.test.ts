@@ -342,26 +342,63 @@ describe("sync with persistence", () => {
 
   it("live lunc sync uses LCD fetch", async () => {
     process.env.USE_FIXTURE_DEMO = "0";
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
-    const payload = JSON.parse(
+    const rewards = JSON.parse(
       readFileSync(join("tests/fixtures/lunc/rewards-sample.json"), "utf8"),
+    );
+    const withdraw = JSON.parse(
+      readFileSync(join("tests/fixtures/lunc/withdraw-txs-sample.json"), "utf8"),
     );
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => payload,
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes("/blocks/latest")) {
+          return {
+            ok: true,
+            json: async () => ({
+              block: {
+                header: {
+                  height: "29550000",
+                  time: "2026-07-18T00:00:00.000Z",
+                },
+              },
+            }),
+          };
+        }
+        if (u.includes("/cosmos/tx/v1beta1/txs")) {
+          if (u.includes("page=1")) {
+            return { ok: true, json: async () => withdraw };
+          }
+          return { ok: true, json: async () => ({ tx_responses: [] }) };
+        }
+        if (u.includes("/rewards")) {
+          return { ok: true, json: async () => rewards };
+        }
+        return { ok: false, status: 404, text: async () => "" };
       }),
     );
     const { syncLuncStake } = await import("../../web/src/lib/sync");
     const result = await syncLuncStake(
       "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
-      { userId: "u1" },
+      {
+        userId: "u1",
+        window: {
+          mode: "custom",
+          fromMs: Date.parse("2026-06-01T00:00:00.000Z"),
+          toMs: Date.parse("2026-07-18T23:59:59.999Z"),
+        },
+      },
     );
     expect(result.status).toBe("ok");
     expect(result.events.length).toBeGreaterThan(0);
+    expect(
+      result.events.some((e) => e.rawType === "withdraw_delegator_reward"),
+    ).toBe(true);
     vi.unstubAllGlobals();
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
   });
 
   it("live lunc sync maps adapter failures to user-facing errors", async () => {

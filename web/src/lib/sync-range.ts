@@ -6,7 +6,8 @@
  * | Source        | Sync behavior | Persist | Display |
  * |---------------|---------------|---------|---------|
  * | Binance / OKX | Fetch bounded to the selected window (or all-time / incremental) | Custom → merge-replace inside window (keep outside). All-time first/forceFull → replace. All-time later → upsert from high-water. | Full persisted ledger (no client date filter). |
- * | LUNC / Monad  | Point-in-time pending rewards — **range ignored** | Always full-replace snapshot | Always show current pending rows (`earnedAt` = sync time). |
+ * | LUNC stake    | Crawl claimed `withdraw_rewards` txs in the window (+ current pending snapshot when the window reaches “now”) | Same merge/replace/upsert plan as CEX | Full persisted ledger. |
+ * | Monad stake   | Point-in-time pending rewards — **range ignored** | Always full-replace snapshot | Current pending rows (`earnedAt` = sync time). |
  *
  * Date-only `YYYY-MM-DD` bounds are UTC day starts/ends. The picker is a
  * **sync** control, not a view filter: after sync, `/api/ledger` returns the
@@ -37,15 +38,12 @@ export interface ResolvedSyncWindow {
 }
 
 /** Sources that ignore the sync date range (pending snapshot only). */
-export const POINT_IN_TIME_SOURCES = ["lunc_stake", "monad_stake"] as const;
+export const POINT_IN_TIME_SOURCES = ["monad_stake"] as const;
 
 export type PointInTimeSource = (typeof POINT_IN_TIME_SOURCES)[number];
 
 export function isPointInTimeSource(source: string): source is PointInTimeSource {
-  return (
-    source === "lunc_stake" ||
-    source === "monad_stake"
-  );
+  return source === "monad_stake";
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -145,7 +143,7 @@ export function splitCustomRangeForTransport(
 
 /**
  * Ranges the dashboard should POST per source.
- * CEX custom multi-year → split; LUNC/Monad → single call (range ignored).
+ * CEX + LUNC custom multi-year → ≤90-day transport splits; Monad → single call.
  */
 export function syncRangesForSource(
   source: string,
@@ -261,14 +259,14 @@ export function buildSyncRangeFromUi(
 }
 
 /**
- * True when every CEX event lies inside `window`. Point-in-time sources are
- * skipped (they are allowed outside the sync window).
+ * True when every Binance/OKX event lies inside `window`.
+ * LUNC pending snapshots and Monad point-in-time rows are skipped.
  */
 export function cexEventsMatchWindow<
-  T extends { earnedAt: string; source: string },
+  T extends { earnedAt: string; source: string; rawType?: string },
 >(events: T[], window: ResolvedSyncWindow): boolean {
   for (const e of events) {
-    if (isPointInTimeSource(e.source)) continue;
+    if (e.source !== "binance" && e.source !== "okx") continue;
     if (!eventInWindow(e.earnedAt, window)) return false;
   }
   return true;
