@@ -13,7 +13,8 @@ import { loadLatestCloses } from "@/lib/prices/price-db";
  * Latest closes from Postgres ohlcv for dashboard conversion.
  * Includes TRACKED_SYMBOLS plus USDT pairs for the user's imported earn assets.
  *
- * Uses earn_aggregates_by_asset (not full earn_events) so large ledgers do not
+ * Uses earn_aggregates_by_asset (precomputed table, not full earn_events) so
+ * large ledgers do not
  * block price hydration.
  */
 export async function GET() {

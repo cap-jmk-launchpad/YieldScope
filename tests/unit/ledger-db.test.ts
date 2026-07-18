@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const from = vi.fn();
+const rpc = vi.fn(async () => ({ data: null, error: null }));
 const isAdminConfigured = vi.fn(() => true);
 
 vi.mock("../../web/src/lib/supabase/admin", () => ({
-  createAdminClient: () => ({ from }),
+  createAdminClient: () => ({ from, rpc }),
   isAdminConfigured: () => isAdminConfigured(),
 }));
 
@@ -17,6 +18,7 @@ describe("ledger-db persistence", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-test";
     isAdminConfigured.mockReturnValue(true);
+    rpc.mockResolvedValue({ data: null, error: null });
   });
 
   afterEach(() => {
@@ -92,6 +94,9 @@ describe("ledger-db persistence", () => {
     });
     expect(result.profileId).toBe("p1");
     expect(result.eventCount).toBe(1);
+    expect(rpc).toHaveBeenCalledWith("refresh_earn_aggregates_for_profile", {
+      p_profile_id: "p1",
+    });
   });
 
   it("persistSourceSync fails when delete errors", async () => {
@@ -497,6 +502,10 @@ describe("ledger-db persistence", () => {
       persistMode: "merge",
     });
     expect(gte).toHaveBeenCalled();
+    // Merge still refreshes full-profile aggregates (not window-sliced).
+    expect(rpc).toHaveBeenCalledWith("refresh_earn_aggregates_for_profile", {
+      p_profile_id: "p1",
+    });
   });
 
   it("persistSourceSync upsert mode skips delete", async () => {
@@ -542,6 +551,9 @@ describe("ledger-db persistence", () => {
       persistMode: "upsert",
     });
     expect(del).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith("refresh_earn_aggregates_for_profile", {
+      p_profile_id: "p1",
+    });
   });
 
   it("persistSourceSync chunks earn event upserts", async () => {
@@ -591,6 +603,52 @@ describe("ledger-db persistence", () => {
     expect(upsert).toHaveBeenCalledTimes(2);
     expect(upsert.mock.calls[0]![0]).toHaveLength(500);
     expect(upsert.mock.calls[1]![0]).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledWith("refresh_earn_aggregates_for_profile", {
+      p_profile_id: "p1",
+    });
+  });
+
+  it("persistSourceSync fails when aggregate refresh errors", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          delete: () => ({
+            eq: () => ({
+              eq: async () => ({ error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return { upsert: async () => ({ error: null }) };
+      }
+      if (table === "sync_runs") {
+        return { insert: async () => ({ error: null }) };
+      }
+      return {};
+    });
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { message: "refresh boom" },
+    });
+    const { persistSourceSync } = await import("../../web/src/lib/ledger-db");
+    await expect(
+      persistSourceSync({
+        userId: "u1",
+        source: "binance",
+        status: "ok",
+        events: [],
+      }),
+    ).rejects.toThrow(/aggregates/i);
   });
 
   it("persistSourceSync fails on wallet / profile wallet errors", async () => {

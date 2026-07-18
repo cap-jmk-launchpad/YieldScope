@@ -21,6 +21,7 @@ configMapGenerator:
       - migrations/202607180006_ohlcv_prices.sql
       - migrations/202607180007_query_performance_indexes.sql
       - migrations/202607180008_ledger_load_perf.sql
+      - migrations/202607180009_earn_aggregates_materialized.sql
   # GoTrue fetches these over HTTP from auth-mail-templates (not Studio UI).
   - name: yieldscope-auth-mail-templates
     files:

@@ -64,12 +64,23 @@ Index inventory (hot paths):
 |-------|--------|
 | `earn_events_profile_earned_idx` | `loadDbLedger` paginated `.range()` by `earned_at DESC` |
 | `earn_events_profile_source_earned_idx` | merge-window delete + `getSourceHighWaterMs` |
-| `earn_events_profile_source_asset_idx` | aggregate views `GROUP BY` |
+| `earn_events_profile_source_asset_idx` | aggregate refresh `GROUP BY` from earn_events |
+| `earn_agg_by_source_profile_idx` / `earn_agg_by_asset_profile_idx` | ledger load precomputed totals |
+| `earn_daily_by_asset_profile_day_idx` | chart series (`eventsMode=chart`) |
 | `ohlcv_symbol_interval_source_time_desc` | latest / as-of / max open_time with `source` |
 | `sync_runs_profile_started_idx` / `…_source_started_idx` | sync history |
 | `wallet_connections_profile_idx` | latest wallet |
 | `source_credentials` UNIQUE `(profile_id, source)` | credential load/save |
 | `profiles_user_id_idx` | `ensureProfileId` |
+
+### Earn aggregate refresh
+
+`earn_aggregates_by_source`, `earn_aggregates_by_asset`, and `earn_daily_by_asset`
+are **tables** (not live views). After every `persistSourceSync` (replace / merge /
+upsert), the app calls `refresh_earn_aggregates_for_profile(profile_id)` which
+delete+reinserts that profile's rollups from `earn_events`. Full-profile refresh
+keeps custom-range merge and LUNC history crawls correct. Ledger/API reads hit
+these tables only — never re-scan raw events for totals/charts.
 
 ## Deploy
 

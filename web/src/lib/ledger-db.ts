@@ -111,8 +111,37 @@ export async function ensureProfileId(userId: string, email?: string | null): Pr
 }
 
 /**
+ * Rebuild precomputed aggregates for one profile from earn_events.
+ * Invoked at the end of every persistSourceSync (replace / merge / upsert)
+ * so dashboard totals and charts never scan raw events.
+ */
+export async function refreshEarnAggregatesForProfile(
+  profileId: string,
+): Promise<void> {
+  if (!isAdminConfigured()) {
+    throw new LedgerPersistError(
+      "Database not configured — cannot refresh aggregates.",
+    );
+  }
+  const admin = createAdminClient();
+  const { error } = await admin.rpc("refresh_earn_aggregates_for_profile", {
+    p_profile_id: profileId,
+  });
+  if (error) {
+    throw new LedgerPersistError(
+      `Failed refreshing earn aggregates: ${error.message}`,
+    );
+  }
+}
+
+/**
  * Replace one source's earn events for a user and record connection + sync_run.
  * Fail-closed: throws LedgerPersistError on any DB failure.
+ *
+ * Aggregate refresh: AFTER events + connection + sync_run succeed, calls
+ * refresh_earn_aggregates_for_profile so by_source / by_asset / daily tables
+ * match the ledger. Full-profile recompute (not window-sliced) so custom-range
+ * merge and LUNC history crawls stay correct.
  */
 export async function persistSourceSync(
   input: PersistSourceInput & { email?: string | null },
@@ -241,6 +270,9 @@ export async function persistSourceSync(
       );
     }
   }
+
+  // AFTER persist — not lazy on read. Merge/upsert still full-profile refresh.
+  await refreshEarnAggregatesForProfile(profileId);
 
   return { profileId, eventCount: input.events.length };
 }
@@ -382,7 +414,8 @@ async function loadEarnEventsPage(
 
 /**
  * Chart series: one synthetic event per (source, asset, UTC day) from the
- * daily aggregate view — orders of magnitude smaller than raw earn_events.
+ * precomputed daily aggregate table — orders of magnitude smaller than raw
+ * earn_events. Table is refreshed after every persistSourceSync.
  */
 async function loadChartSeriesEvents(
   admin: ReturnType<typeof createAdminClient>,
@@ -601,7 +634,7 @@ export async function listDistinctEarnAssets(): Promise<string[]> {
     throw new LedgerPersistError("Database not configured.");
   }
   const admin = createAdminClient();
-  // Aggregates view is already grouped by asset — cheaper than raw events.
+  // Precomputed by-asset table — cheaper than scanning raw earn_events.
   const { data, error } = await admin
     .from("earn_aggregates_by_asset")
     .select("asset");
