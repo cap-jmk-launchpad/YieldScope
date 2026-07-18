@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { authCallbackRedirect } from "@/lib/auth/redirect";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { authRecoveryRedirect } from "@/lib/auth/redirect";
+import {
+  createRecoveryClient,
+  isSupabaseConfigured,
+} from "@/lib/supabase/client";
 
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState("");
@@ -26,10 +29,10 @@ export function ForgotPasswordForm() {
 
     setBusy(true);
     try {
-      const supabase = createClient();
+      const supabase = createRecoveryClient();
       const redirectTo =
         typeof window !== "undefined"
-          ? authCallbackRedirect("/auth/reset-password", window.location.origin)
+          ? authRecoveryRedirect(window.location.origin)
           : undefined;
 
       const { error: authError } = await supabase.auth.resetPasswordForEmail(email, {

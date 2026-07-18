@@ -5,6 +5,48 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
+/**
+ * Establish a recovery session from the email redirect, then allow password update.
+ * GoTrue may land here with PKCE `?code=` or implicit `#access_token=...`.
+ */
+async function establishRecoverySession(): Promise<boolean> {
+  const supabase = createClient();
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("code");
+  const tokenHash = url.searchParams.get("token_hash");
+  const otpType = url.searchParams.get("type");
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+
+  if (hashParams.get("error") || url.searchParams.get("error")) {
+    return false;
+  }
+
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+  } else if (tokenHash && (otpType === "recovery" || otpType === "email")) {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: otpType,
+    });
+    if (error) throw error;
+  } else if (hashParams.get("access_token") && hashParams.get("refresh_token")) {
+    const { error } = await supabase.auth.setSession({
+      access_token: hashParams.get("access_token")!,
+      refresh_token: hashParams.get("refresh_token")!,
+    });
+    if (error) throw error;
+  }
+
+  if (code || tokenHash || hashParams.get("access_token")) {
+    window.history.replaceState({}, "", "/auth/reset-password");
+  }
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  return Boolean(data.session);
+}
+
 export function ResetPasswordForm() {
   const router = useRouter();
   const configured = isSupabaseConfigured();
@@ -18,16 +60,34 @@ export function ResetPasswordForm() {
 
   useEffect(() => {
     if (!configured) return;
-    const supabase = createClient();
-    void supabase.auth.getSession().then(({ data }) => {
-      setHasSession(Boolean(data.session));
-      if (!data.session) {
-        setError(
-          "Reset link expired or missing. Request a new password reset email.",
-        );
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const ok = await establishRecoverySession();
+        if (!cancelled) {
+          setHasSession(ok);
+          if (!ok) {
+            setError(
+              "Reset link expired or missing. Request a new password reset email.",
+            );
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setHasSession(false);
+          setError(
+            "Reset link expired or invalid. Request a new password reset email.",
+          );
+        }
+      } finally {
+        if (!cancelled) setReady(true);
       }
-      setReady(true);
-    });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [configured]);
 
   async function onSubmit(e: FormEvent) {

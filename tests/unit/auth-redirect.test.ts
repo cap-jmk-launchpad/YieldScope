@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   authCallbackRedirect,
+  authRecoveryRedirect,
   safeRedirectPath,
 } from "../../web/src/lib/auth/redirect";
 
@@ -34,5 +35,13 @@ describe("authCallbackRedirect", () => {
     expect(
       authCallbackRedirect("//evil.com", "https://yieldscope.d3bu7.com"),
     ).toBe("https://yieldscope.d3bu7.com/auth/callback?next=%2Fapp");
+  });
+});
+
+describe("authRecoveryRedirect", () => {
+  it("returns path-only reset-password URL", () => {
+    expect(authRecoveryRedirect("https://yieldscope.d3bu7.com")).toBe(
+      "https://yieldscope.d3bu7.com/auth/reset-password",
+    );
   });
 });

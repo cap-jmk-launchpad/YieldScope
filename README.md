@@ -50,7 +50,7 @@ Supabase redirect URLs (Auth → URL Configuration):
 
 ## Auth model
 
-- **Account:** Supabase email/password at `/login`, `/register`, and `/forgot-password` → `/auth/reset-password`. Registration requires email confirmation (Supabase Dashboard → Auth → confirm email) — that link is the only bot gate (no captcha). Password reset uses the same `/auth/callback` PKCE exchange.
+- **Account:** Supabase email/password at `/login`, `/register`, and `/forgot-password` → `/auth/reset-password`. Registration requires email confirmation (Supabase Dashboard → Auth → confirm email) — that link is the only bot gate (no captcha). Password reset emails verify on the API host then redirect to `/auth/reset-password` (`?code=` or `#access_token=`).
 - **CEX:** Connect UI is **read-only API keys** for Binance and OKX (sessionStorage). Server sync also accepts env vars for smoke (`BINANCE_*`, `OKX_*`).
 - **Wallet:** RainbowKit + wagmi on Monad testnet (chain `10143`) for stake reads and attestation.
 - **Fail closed:** `/app/*` requires a session; `/api/sync` and `/api/checkpoint/*` return 401 when unauthenticated. Broken adapters never invent earn rows.
