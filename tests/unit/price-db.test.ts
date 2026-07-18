@@ -182,4 +182,237 @@ describe("price-db upsert + latest queries", () => {
       interval: "1m",
     });
   });
+
+  it("upsertOhlcvCandles returns 0 for empty and fails on upsert error", async () => {
+    const { upsertOhlcvCandles, PricePersistError } = await import(
+      "../../web/src/lib/prices/price-db"
+    );
+    expect(await upsertOhlcvCandles([])).toBe(0);
+
+    from.mockImplementation(() => ({
+      upsert: async () => ({ error: { message: "upsert boom" } }),
+    }));
+    await expect(
+      upsertOhlcvCandles([
+        {
+          symbol: "BTCUSDT",
+          interval: "1m",
+          openTime: "2026-01-01T00:00:00.000Z",
+          open: "1",
+          high: "1",
+          low: "1",
+          close: "1",
+          volume: "0",
+          source: "binance",
+        },
+      ]),
+    ).rejects.toBeInstanceOf(PricePersistError);
+  });
+
+  it("loadLatestCloses covers empty / error / configured gates", async () => {
+    const { loadLatestCloses, PricePersistError } = await import(
+      "../../web/src/lib/prices/price-db"
+    );
+    isAdminConfigured.mockReturnValue(false);
+    await expect(loadLatestCloses(["BTCUSDT"])).rejects.toBeInstanceOf(
+      PricePersistError,
+    );
+
+    isAdminConfigured.mockReturnValue(true);
+    expect(await loadLatestCloses([])).toEqual({});
+
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({
+                    data: null,
+                    error: { message: "latest fail" },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    await expect(loadLatestCloses(["ETHUSDT"], "1d")).rejects.toThrow(
+      /ohlcv latest/,
+    );
+  });
+
+  it("loadCloseAtOrBefore falls back to 1d and accepts Date", async () => {
+    let calls = 0;
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => ({
+              lte: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => {
+                      calls += 1;
+                      if (calls === 1) {
+                        return { data: null, error: null };
+                      }
+                      return {
+                        data: {
+                          close: "50",
+                          open_time: "2026-01-01T00:00:00.000Z",
+                          interval: "1d",
+                        },
+                        error: null,
+                      };
+                    },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    const { loadCloseAtOrBefore } = await import(
+      "../../web/src/lib/prices/price-db"
+    );
+    const row = await loadCloseAtOrBefore(
+      "BTCUSDT",
+      new Date("2026-01-02T00:00:00.000Z"),
+    );
+    expect(row).toEqual({
+      close: 50,
+      openTime: "2026-01-01T00:00:00.000Z",
+      interval: "1d",
+    });
+  });
+
+  it("loadCloseAtOrBefore returns null and throws on query error", async () => {
+    const { loadCloseAtOrBefore, PricePersistError } = await import(
+      "../../web/src/lib/prices/price-db"
+    );
+    isAdminConfigured.mockReturnValue(false);
+    await expect(
+      loadCloseAtOrBefore("BTCUSDT", "2026-01-01T00:00:00.000Z"),
+    ).rejects.toBeInstanceOf(PricePersistError);
+
+    isAdminConfigured.mockReturnValue(true);
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => ({
+              lte: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({ data: null, error: null }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    expect(
+      await loadCloseAtOrBefore("BTCUSDT", "2026-01-01T00:00:00.000Z"),
+    ).toBeNull();
+
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => ({
+              lte: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({
+                      data: null,
+                      error: { message: "at fail" },
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    await expect(
+      loadCloseAtOrBefore("BTCUSDT", "2026-01-01T00:00:00.000Z"),
+    ).rejects.toThrow(/ohlcv at/);
+  });
+
+  it("loadMaxOpenTime returns cursor or null", async () => {
+    const { loadMaxOpenTime, PricePersistError } = await import(
+      "../../web/src/lib/prices/price-db"
+    );
+    isAdminConfigured.mockReturnValue(false);
+    await expect(loadMaxOpenTime("BTCUSDT", "1m")).rejects.toBeInstanceOf(
+      PricePersistError,
+    );
+
+    isAdminConfigured.mockReturnValue(true);
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({
+                    data: { open_time: "2026-07-18T08:00:00.000Z" },
+                    error: null,
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    expect(await loadMaxOpenTime("BTCUSDT", "1m")).toBe(
+      "2026-07-18T08:00:00.000Z",
+    );
+
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    expect(await loadMaxOpenTime("ETHUSDT", "1d")).toBeNull();
+
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({
+                    data: null,
+                    error: { message: "max fail" },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    await expect(loadMaxOpenTime("BTCUSDT", "1m")).rejects.toThrow(/ohlcv max/);
+  });
 });

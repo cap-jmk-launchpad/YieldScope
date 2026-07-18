@@ -87,6 +87,22 @@ describe("earningsByYear", () => {
       ),
     ).toEqual([{ year: 2024, total: 3_000 }]);
   });
+
+  it("convertAmount skips invalid years and non-finite values", () => {
+    expect(
+      earningsByYear(
+        [
+          ev({ amount: "1", earnedAt: "bad" }),
+          ev({ amount: "2", earnedAt: "2024-01-01T00:00:00.000Z" }),
+          ev({ amount: "3", earnedAt: "2023-01-01T00:00:00.000Z" }),
+        ],
+        {
+          convertAmount: (_a, amount) =>
+            amount === "2" ? Number.NaN : Number(amount),
+        },
+      ),
+    ).toEqual([{ year: 2023, total: 3 }]);
+  });
 });
 
 describe("earningsByCurrency", () => {
@@ -119,6 +135,33 @@ describe("earningsByCurrency", () => {
         ev({ asset: "C", amount: "5", earnedAt: "2024-01-01T00:00:00.000Z" }),
       ]).map((s) => s.asset),
     ).toEqual(["C", "A", "B"]);
+  });
+
+  it("convertAmount path groups assets and computes shares", () => {
+    const slices = earningsByCurrency(
+      [
+        ev({ asset: "USDT", amount: "1", earnedAt: "2024-01-01T00:00:00.000Z" }),
+        ev({ asset: "  ", amount: "1", earnedAt: "2024-01-01T00:00:00.000Z" }),
+        ev({ asset: "BTC", amount: "0", earnedAt: "2024-01-01T00:00:00.000Z" }),
+        ev({ asset: "ETH", amount: "2", earnedAt: "2024-01-01T00:00:00.000Z" }),
+      ],
+      {
+        convertAmount: (asset, amount) => {
+          if (asset === "BTC") return 0;
+          if (asset === "UNKNOWN") return 25;
+          return asset === "ETH" ? Number(amount) * 10 : Number(amount);
+        },
+      },
+    );
+    // UNKNOWN (blank asset) → 25, ETH → 20, USDT → 1
+    expect(slices.map((s) => s.asset)).toEqual(["UNKNOWN", "ETH", "USDT"]);
+    expect(slices[0].share).toBeCloseTo(25 / 46);
+    expect(slices.find((s) => s.asset === "USDT")?.share).toBeCloseTo(1 / 46);
+  });
+
+  it("defaults display unit to native", () => {
+    expect(chartDisplayUnit()).toBe("native");
+    expect(chartDisplayUnit({ displayCurrency: "  " })).toBe("native");
   });
 });
 

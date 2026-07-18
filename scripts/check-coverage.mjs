@@ -5,6 +5,8 @@
  *
  * Usage: node scripts/check-coverage.mjs
  *        (runs `pnpm exec vitest run --coverage` first unless --summary-only)
+ *
+ * Optional: COVERAGE_DIR=coverage-agent to isolate reports from concurrent Vitest runs.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -12,14 +14,21 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const summaryPath = join(root, "coverage", "coverage-summary.json");
+const coverageDir = process.env.COVERAGE_DIR || "coverage";
+const summaryPath = join(root, coverageDir, "coverage-summary.json");
 const THRESHOLD = 80;
 const summaryOnly = process.argv.includes("--summary-only");
 
 function runVitestCoverage() {
   const result = spawnSync(
     "pnpm",
-    ["exec", "vitest", "run", "--coverage"],
+    [
+      "exec",
+      "vitest",
+      "run",
+      "--coverage",
+      `--coverage.reportsDirectory=${coverageDir}`,
+    ],
     {
       cwd: root,
       stdio: "inherit",
@@ -59,7 +68,7 @@ const pct = readPercents();
 const metrics = ["lines", "functions", "branches", "statements"];
 let failed = false;
 
-console.log("\nCoverage gate (≥80%):");
+console.log(`\nCoverage gate (≥80%) [${coverageDir}]:`);
 for (const m of metrics) {
   const v = pct[m];
   const ok = typeof v === "number" && v >= THRESHOLD;

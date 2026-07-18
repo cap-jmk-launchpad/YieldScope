@@ -40,3 +40,5 @@ contracts/broadcast/.agents/skills/impeccable/
 .codex/
 
 coverage/
+coverage-agent/
+coverage-*.log

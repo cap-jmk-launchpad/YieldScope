@@ -117,4 +117,29 @@ describe("LUNC (Terra Classic) stake adapter", () => {
   it("microToHuman rejects bad amounts", () => {
     expect(() => microToHuman("nope")).toThrow(LuncAdapterError);
   });
+
+  it("parses address from query params and rejects malformed totals", () => {
+    expect(
+      parseLuncAddress(`https://finder.terra.money/classic?address=${ADDR}`),
+    ).toBe(ADDR);
+    expect(
+      parseLuncAddress(`https://example.com/?account=${ADDR}`),
+    ).toBe(ADDR);
+    expect(() =>
+      normalizeLuncRewards(ADDR, {
+        rewards: [],
+        total: [{ denom: "", amount: "1" }],
+      }),
+    ).toThrow(LuncAdapterError);
+    expect(() =>
+      normalizeLuncRewards(ADDR, {
+        rewards: [
+          {
+            validator_address: "terravaloper1abc",
+            reward: [{ denom: "uluna", amount: null as unknown as string }],
+          },
+        ],
+      }),
+    ).toThrow(LuncAdapterError);
+  });
 });

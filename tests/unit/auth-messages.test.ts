@@ -22,7 +22,7 @@ describe("isEmailNotConfirmed", () => {
 describe("authCallbackErrorMessage", () => {
   it("maps known callback error codes", () => {
     expect(authCallbackErrorMessage("auth_callback")).toMatch(/expired or invalid/i);
-    expect(authCallbackErrorMessage("auth_unconfigured")).toMatch(/not configured/i);
+    expect(authCallbackErrorMessage("auth_unconfigured")).toMatch(/isn.?t available|try again later/i);
   });
 
   it("returns null for unknown codes", () => {

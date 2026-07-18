@@ -443,4 +443,480 @@ describe("ledger-db persistence", () => {
     }));
     await expect(loadDbLedger("u1")).rejects.toThrow(/boom/);
   });
+
+  it("persistSourceSync merge mode deletes only the window", async () => {
+    const gte = vi.fn(() => ({
+      lte: async () => ({ error: null }),
+    }));
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          delete: () => ({
+            eq: () => ({
+              eq: () => ({ gte }),
+            }),
+          }),
+          upsert: async () => ({ error: null }),
+        };
+      }
+      if (table === "source_connections") {
+        return { upsert: async () => ({ error: null }) };
+      }
+      if (table === "sync_runs") {
+        return { insert: async () => ({ error: null }) };
+      }
+      return {};
+    });
+    const { persistSourceSync } = await import("../../web/src/lib/ledger-db");
+    await persistSourceSync({
+      userId: "u1",
+      source: "binance",
+      status: "ok",
+      events: [],
+      mergeFromMs: Date.parse("2024-07-01T00:00:00.000Z"),
+      mergeToMs: Date.parse("2024-07-31T23:59:59.999Z"),
+      persistMode: "merge",
+    });
+    expect(gte).toHaveBeenCalled();
+  });
+
+  it("persistSourceSync upsert mode skips delete", async () => {
+    const del = vi.fn();
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          delete: del,
+          upsert: async () => ({ error: null }),
+        };
+      }
+      if (table === "source_connections") {
+        return { upsert: async () => ({ error: null }) };
+      }
+      if (table === "sync_runs") {
+        return { insert: async () => ({ error: null }) };
+      }
+      return {};
+    });
+    const { persistSourceSync } = await import("../../web/src/lib/ledger-db");
+    await persistSourceSync({
+      userId: "u1",
+      source: "okx",
+      status: "ok",
+      events: [
+        {
+          id: "okx:1",
+          source: "okx",
+          asset: "USDT",
+          amount: "1",
+          earnedAt: "2024-07-01T00:00:00.000Z",
+        },
+      ],
+      persistMode: "upsert",
+    });
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it("persistSourceSync fails on wallet / profile wallet errors", async () => {
+    const { persistSourceSync, LedgerPersistError } = await import(
+      "../../web/src/lib/ledger-db"
+    );
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          delete: () => ({
+            eq: () => ({
+              eq: async () => ({ error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return { upsert: async () => ({ error: null }) };
+      }
+      if (table === "sync_runs") {
+        return { insert: async () => ({ error: null }) };
+      }
+      if (table === "wallet_connections") {
+        return { upsert: async () => ({ error: { message: "wallet boom" } }) };
+      }
+      return {};
+    });
+    await expect(
+      persistSourceSync({
+        userId: "u1",
+        source: "monad_stake",
+        status: "ok",
+        events: [],
+        walletAddress: "0xABC",
+      }),
+    ).rejects.toThrow(/wallet connection/i);
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+          update: () => ({
+            eq: async () => ({ error: { message: "profile wallet" } }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          delete: () => ({
+            eq: () => ({
+              eq: async () => ({ error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return { upsert: async () => ({ error: null }) };
+      }
+      if (table === "sync_runs") {
+        return { insert: async () => ({ error: null }) };
+      }
+      if (table === "wallet_connections") {
+        return { upsert: async () => ({ error: null }) };
+      }
+      return {};
+    });
+    await expect(
+      persistSourceSync({
+        userId: "u1",
+        source: "monad_stake",
+        status: "ok",
+        events: [],
+        walletAddress: "0xabc",
+        chainId: 10143,
+      }),
+    ).rejects.toBeInstanceOf(LedgerPersistError);
+  });
+
+  it("ensureProfileId fails on select / insert errors", async () => {
+    const { ensureProfileId, LedgerPersistError } = await import(
+      "../../web/src/lib/ledger-db"
+    );
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: null,
+            error: { message: "select fail" },
+          }),
+        }),
+      }),
+    }));
+    await expect(ensureProfileId("u1")).rejects.toThrow(/Profile lookup/);
+
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({ data: null, error: null }),
+        }),
+      }),
+      insert: () => ({
+        select: () => ({
+          single: async () => ({
+            data: null,
+            error: { message: "insert fail" },
+          }),
+        }),
+      }),
+    }));
+    await expect(ensureProfileId("u1", "a@b.c")).rejects.toBeInstanceOf(
+      LedgerPersistError,
+    );
+  });
+
+  it("getSourceHighWaterMs covers null / error / valid paths", async () => {
+    const { getSourceHighWaterMs, LedgerPersistError } = await import(
+      "../../web/src/lib/ledger-db"
+    );
+    isAdminConfigured.mockReturnValue(false);
+    expect(await getSourceHighWaterMs("u1", "binance")).toBeNull();
+
+    isAdminConfigured.mockReturnValue(true);
+    from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: null,
+            error: { message: "p fail" },
+          }),
+        }),
+      }),
+    }));
+    await expect(getSourceHighWaterMs("u1", "binance")).rejects.toThrow(
+      /Profile lookup/,
+    );
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    expect(await getSourceHighWaterMs("u1", "binance")).toBeNull();
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({
+                      data: null,
+                      error: { message: "hw fail" },
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    await expect(getSourceHighWaterMs("u1", "okx")).rejects.toBeInstanceOf(
+      LedgerPersistError,
+    );
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({
+                      data: { earned_at: "2024-07-01T00:00:00.000Z" },
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    expect(await getSourceHighWaterMs("u1", "binance")).toBe(
+      Date.parse("2024-07-01T00:00:00.000Z"),
+    );
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({
+                      data: { earned_at: null },
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    expect(await getSourceHighWaterMs("u1", "binance")).toBeNull();
+  });
+
+  it("listDistinctEarnAssets lists unique tickers", async () => {
+    const { listDistinctEarnAssets, LedgerPersistError } = await import(
+      "../../web/src/lib/ledger-db"
+    );
+    isAdminConfigured.mockReturnValue(false);
+    await expect(listDistinctEarnAssets()).rejects.toBeInstanceOf(
+      LedgerPersistError,
+    );
+
+    isAdminConfigured.mockReturnValue(true);
+    from.mockImplementation(() => ({
+      select: async () => ({
+        data: null,
+        error: { message: "list fail" },
+      }),
+    }));
+    await expect(listDistinctEarnAssets()).rejects.toThrow(/earn assets/);
+
+    from.mockImplementation(() => ({
+      select: async () => ({
+        data: [
+          { asset: " usdt " },
+          { asset: "BTC" },
+          { asset: "" },
+          { asset: "btc" },
+          { asset: null },
+        ],
+        error: null,
+      }),
+    }));
+    expect(await listDistinctEarnAssets()).toEqual(["BTC", "USDT"]);
+  });
+
+  it("loadDbLedger maps null wallet and unknown sources", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: async () => ({
+                  data: [
+                    {
+                      id: "x",
+                      source: "binance",
+                      asset: "USDT",
+                      amount: 1,
+                      earned_at: "2024-07-01T00:00:00.000Z",
+                      raw_type: null,
+                      meta: null,
+                    },
+                  ],
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "unknown_src",
+                  status: "ok",
+                  last_error: "e",
+                  last_synced_at: null,
+                },
+                {
+                  source: "okx",
+                  status: "error",
+                  last_error: "bad",
+                  last_synced_at: "2024-07-01T00:00:00.000Z",
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (
+        table === "earn_aggregates_by_source" ||
+        table === "earn_aggregates_by_asset"
+      ) {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
+    const snap = await loadDbLedger("u1");
+    expect(snap.wallet).toBeNull();
+    expect(snap.sources.okx.status).toBe("error");
+    expect(snap.sources.okx.error).toBe("bad");
+    expect(snap.events[0].rawType).toBeUndefined();
+  });
 });

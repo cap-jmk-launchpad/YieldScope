@@ -37,4 +37,98 @@ describe("ledger-store", () => {
     expect(getLedger().events).toHaveLength(0);
     expect(getLedger().sources.binance.error).toBe("boom");
   });
+
+  it("merge window keeps events outside the synced range", () => {
+    resetLedger();
+    replaceSourceEvents("binance", {
+      status: "ok",
+      events: [
+        {
+          id: "binance:old",
+          source: "binance",
+          asset: "USDT",
+          amount: "1",
+          earnedAt: "2024-06-01T00:00:00.000Z",
+        },
+        {
+          id: "binance:mid",
+          source: "binance",
+          asset: "USDT",
+          amount: "2",
+          earnedAt: "2024-07-15T00:00:00.000Z",
+        },
+        {
+          id: "binance:new",
+          source: "binance",
+          asset: "USDT",
+          amount: "3",
+          earnedAt: "2024-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+    replaceSourceEvents(
+      "binance",
+      {
+        status: "ok",
+        events: [
+          {
+            id: "binance:mid2",
+            source: "binance",
+            asset: "USDT",
+            amount: "9",
+            earnedAt: "2024-07-15T12:00:00.000Z",
+          },
+        ],
+      },
+      {
+        mergeFromMs: Date.parse("2024-07-01T00:00:00.000Z"),
+        mergeToMs: Date.parse("2024-07-31T23:59:59.999Z"),
+      },
+    );
+    const ids = getLedger().events.map((e) => e.id).sort();
+    expect(ids).toEqual(["binance:mid2", "binance:new", "binance:old"]);
+  });
+
+  it("upsertOnly replaces matching ids and keeps the rest", () => {
+    resetLedger();
+    replaceSourceEvents("okx", {
+      status: "ok",
+      events: [
+        {
+          id: "okx:1",
+          source: "okx",
+          asset: "USDT",
+          amount: "1",
+          earnedAt: "2024-07-01T00:00:00.000Z",
+        },
+        {
+          id: "okx:2",
+          source: "okx",
+          asset: "USDT",
+          amount: "2",
+          earnedAt: "2024-07-02T00:00:00.000Z",
+        },
+      ],
+    });
+    replaceSourceEvents(
+      "okx",
+      {
+        status: "ok",
+        events: [
+          {
+            id: "okx:1",
+            source: "okx",
+            asset: "USDT",
+            amount: "10",
+            earnedAt: "2024-07-01T00:00:00.000Z",
+          },
+        ],
+      },
+      { upsertOnly: true },
+    );
+    const snap = getLedger();
+    expect(snap.events).toHaveLength(2);
+    expect(snap.events.find((e) => e.id === "okx:1")?.amount).toBe("10");
+    expect(snap.events.find((e) => e.id === "okx:2")?.amount).toBe("2");
+  });
 });

@@ -363,4 +363,37 @@ describe("sync with persistence", () => {
     expect(result.events.length).toBeGreaterThan(0);
     vi.unstubAllGlobals();
   });
+
+  it("live lunc sync maps adapter failures to user-facing errors", async () => {
+    process.env.USE_FIXTURE_DEMO = "0";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: async () => "LCD down",
+      }),
+    );
+    const { syncLuncStake } = await import("../../web/src/lib/sync");
+    const result = await syncLuncStake(
+      "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
+      { userId: "u1" },
+    );
+    expect(result.status).toBe("error");
+    expect(result.error).toMatch(/LUNC staking rewards/i);
+    vi.unstubAllGlobals();
+  });
+
+  it("buildSyncContext resolves window and forceFull", async () => {
+    const { buildSyncContext } = await import("../../web/src/lib/sync");
+    const ctx = buildSyncContext(
+      { userId: "u1" },
+      { mode: "custom", from: "2024-01-01", to: "2024-01-31", forceFull: true },
+    );
+    expect(ctx.window?.mode).toBe("custom");
+    expect(ctx.forceFull).toBe(true);
+    const all = buildSyncContext({ userId: "u1" });
+    expect(all.window?.mode).toBe("all");
+    expect(all.forceFull).toBe(false);
+  });
 });

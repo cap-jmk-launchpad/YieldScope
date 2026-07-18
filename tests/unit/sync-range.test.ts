@@ -94,4 +94,56 @@ describe("sync-range", () => {
       parseSyncRangeBody({ range: { mode: "all", forceFull: true } }),
     ).toEqual({ mode: "all", forceFull: true });
   });
+
+  it("covers flat body, forceFull strings, and invalid range", () => {
+    expect(parseSyncRangeBody(null)).toBeUndefined();
+    expect(parseSyncRangeBody("x")).toBeUndefined();
+    expect(parseSyncRangeBody({ mode: "all" })).toEqual({ mode: "all" });
+    expect(parseSyncRangeBody({ mode: "all", forceFull: "true" })).toEqual({
+      mode: "all",
+      forceFull: true,
+    });
+    expect(parseSyncRangeBody({ forceFull: 1 })).toEqual({
+      mode: "all",
+      forceFull: true,
+    });
+    expect(parseSyncRangeBody({ from: "2024-01-01", to: "2024-01-02" })).toEqual({
+      mode: "custom",
+      from: "2024-01-01",
+      to: "2024-01-02",
+    });
+    expect(parseSyncRangeBody({ from: "2024-01-01" })).toEqual({
+      mode: "custom",
+      from: "2024-01-01",
+      to: undefined,
+    });
+    expect(() => parseSyncRangeBody({ range: "bad" })).toThrow(SyncRangeError);
+    expect(
+      resolveSyncRange({
+        mode: "custom",
+        from: "2024-07-01T12:00:00.000Z",
+        to: "2024-07-02T12:00:00.000Z",
+      }),
+    ).toEqual({
+      mode: "custom",
+      fromMs: Date.parse("2024-07-01T12:00:00.000Z"),
+      toMs: Date.parse("2024-07-02T12:00:00.000Z"),
+    });
+    expect(() =>
+      resolveSyncRange({ mode: "custom", from: "nope", to: "2024-01-01" }),
+    ).toThrow(SyncRangeError);
+    expect(chunkTimeRange(10, 5)).toEqual([]);
+    expect(eventInWindow("not-a-date", {
+      mode: "custom",
+      fromMs: 1,
+      toMs: 2,
+    })).toBe(false);
+    expect(
+      eventInWindow("2024-01-01T00:00:00.000Z", {
+        mode: "all",
+        fromMs: null,
+        toMs: null,
+      }),
+    ).toBe(true);
+  });
 });
