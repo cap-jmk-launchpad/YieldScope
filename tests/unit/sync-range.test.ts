@@ -287,5 +287,33 @@ describe("sync-range", () => {
         { source: "binance", eventCount: 10, firstEarnedAt: null, lastEarnedAt: null },
       ]),
     ).toBeNull();
+    // Skip non-CEX sources while still counting CEX rows
+    expect(
+      cexCoverageRefreshHintFromAggregates([
+        {
+          source: "lunc_stake",
+          eventCount: 999,
+          firstEarnedAt: "2020-01-01T00:00:00.000Z",
+          lastEarnedAt: "2024-01-01T00:00:00.000Z",
+        },
+        {
+          source: "okx",
+          eventCount: 60,
+          firstEarnedAt: "2024-07-01T00:00:00.000Z",
+          lastEarnedAt: "2024-07-02T00:00:00.000Z",
+        },
+      ]),
+    ).toMatch(/few days/i);
+    // Enough CEX events but unparseable dates → null (non-finite min/max)
+    expect(
+      cexCoverageRefreshHintFromAggregates([
+        {
+          source: "binance",
+          eventCount: 80,
+          firstEarnedAt: "not-a-date",
+          lastEarnedAt: null,
+        },
+      ]),
+    ).toBeNull();
   });
 });
