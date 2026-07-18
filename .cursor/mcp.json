@@ -1,0 +1,7 @@
+﻿{
+  "mcpServers": {
+    "majico": {
+      "url": "https://api.majico.xyz/mcp"
+    }
+  }
+}
