@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { passwordResetSentMessage } from "@/lib/auth/messages";
 import { authRecoveryRedirect } from "@/lib/auth/redirect";
 import {
   createRecoveryClient,
@@ -42,9 +43,7 @@ export function ForgotPasswordForm() {
         setError(authError.message);
         return;
       }
-      setInfo(
-        `If an account exists for ${email}, we sent a password reset link. Open it to choose a new password.`,
-      );
+      setInfo(passwordResetSentMessage(email));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
     } finally {

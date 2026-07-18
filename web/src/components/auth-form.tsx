@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { authCallbackErrorMessage, isEmailNotConfirmed } from "@/lib/auth/messages";
+import {
+  authCallbackErrorMessage,
+  emailNotConfirmedMessage,
+  isEmailNotConfirmed,
+  signupConfirmationSentMessage,
+} from "@/lib/auth/messages";
 import { authCallbackRedirect } from "@/lib/auth/redirect";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -49,9 +54,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
         });
         if (authError) {
           if (isEmailNotConfirmed(authError.message)) {
-            setInfo(
-              "Confirm your email first — check your inbox for the signup link, then sign in again.",
-            );
+            setInfo(emailNotConfirmedMessage());
             return;
           }
           setError(authError.message);
@@ -81,9 +84,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
         router.refresh();
         return;
       }
-      setInfo(
-        `We sent a confirmation link to ${email}. Open it to activate your account, then sign in.`,
-      );
+      setInfo(signupConfirmationSentMessage(email));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Auth failed");
     } finally {
