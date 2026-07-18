@@ -76,6 +76,31 @@ spec:
                 configMapKeyRef:
                   name: yieldscope-supabase-config
                   key: GOTRUE_MAILER_EXTERNAL_HOSTS
+            - name: GOTRUE_MAILER_URLPATHS_RECOVERY
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_URLPATHS_RECOVERY
+            - name: GOTRUE_MAILER_URLPATHS_CONFIRMATION
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_URLPATHS_CONFIRMATION
+            - name: GOTRUE_MAILER_URLPATHS_INVITE
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_URLPATHS_INVITE
+            - name: GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE
+            - name: GOTRUE_MAILER_URLPATHS_MAGIC_LINK
+              valueFrom:
+                configMapKeyRef:
+                  name: yieldscope-supabase-config
+                  key: GOTRUE_MAILER_URLPATHS_MAGIC_LINK
             - name: GOTRUE_DISABLE_SIGNUP
               value: "false"
             - name: GOTRUE_JWT_ADMIN_ROLES

@@ -8,7 +8,14 @@ data:
   API_EXTERNAL_URL: https://supabase.yieldscope.d3bu7.com
   SITE_URL: https://yieldscope.d3bu7.com
   GOTRUE_JWT_ISSUER: https://supabase.yieldscope.d3bu7.com/auth/v1
-  GOTRUE_URI_ALLOW_LIST: "https://yieldscope.d3bu7.com/**,http://localhost:3000/**,http://127.0.0.1:3000/**"
+  # Must include app callback + reset-password (and localhost for dev).
+  GOTRUE_URI_ALLOW_LIST: "https://yieldscope.d3bu7.com/**,https://yieldscope.d3bu7.com/auth/callback,https://yieldscope.d3bu7.com/auth/reset-password,http://localhost:3000/**,http://localhost:3000/auth/callback,http://localhost:3000/auth/reset-password,http://127.0.0.1:3000/**"
   GOTRUE_MAILER_EXTERNAL_HOSTS: "supabase.yieldscope.d3bu7.com,yieldscope.d3bu7.com"
+  # Kong mounts GoTrue at /auth/v1; defaults of /verify land on Studio basic-auth.
+  GOTRUE_MAILER_URLPATHS_RECOVERY: "/auth/v1/verify"
+  GOTRUE_MAILER_URLPATHS_CONFIRMATION: "/auth/v1/verify"
+  GOTRUE_MAILER_URLPATHS_INVITE: "/auth/v1/verify"
+  GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: "/auth/v1/verify"
+  GOTRUE_MAILER_URLPATHS_MAGIC_LINK: "/auth/v1/verify"
   STUDIO_DEFAULT_ORGANIZATION: YieldScope
   STUDIO_DEFAULT_PROJECT: YieldScope

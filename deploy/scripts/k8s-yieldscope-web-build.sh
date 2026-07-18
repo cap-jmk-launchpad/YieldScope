@@ -24,7 +24,7 @@ if [[ -z "$SA" ]]; then
 fi
 MR="${NEXT_PUBLIC_MONAD_RPC_URL:-https://testnet-rpc.monad.xyz}"
 CP="${NEXT_PUBLIC_CHECKPOINT_ADDRESS:-}"
-WC="${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}"
+WC="${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-21fef48091f12692cad574a6f7753643}"
 
 echo "==> syncing sources to $BUILD_HOST"
 tar --exclude=node_modules --exclude=.next --exclude=web/.next \

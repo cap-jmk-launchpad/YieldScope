@@ -7,6 +7,10 @@ Self-hosted Supabase for YieldScope on blackpearl/engine — **not** Majico stag
 | `https://supabase.yieldscope.d3bu7.com` | Kong NodePort `30595` (API + Studio) |
 | `https://yieldscope.d3bu7.com` | App (Site URL for Auth emails) |
 
+Auth email links must use `/auth/v1/verify` (via `GOTRUE_MAILER_URLPATHS_*`). GoTrue’s default
+`/verify` path hits Kong’s Studio catch-all (basic-auth) instead of GoTrue, so password-reset
+and confirm-email links appear to “redirect to Supabase”.
+
 Studio / dashboard is **basic-auth** via Kong (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` in the secret).
 
 Auth SMTP is wired through GoTrue env (`GOTRUE_SMTP_*`) — no Studio UI click-through. Mailer uses the
