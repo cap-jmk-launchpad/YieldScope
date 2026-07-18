@@ -40,6 +40,41 @@ describe("OKX earn adapter", () => {
     );
   });
 
+  it("surfaces 50119 with re-save hint", () => {
+    expect(() =>
+      normalizeOkxEarn({
+        code: "50119",
+        msg: "API key doesn't exist",
+        data: [],
+      }),
+    ).toThrow(/re-save OKX/i);
+  });
+
+  it("stops pagination when after cursor does not advance", async () => {
+    const page = {
+      code: "0",
+      data: Array.from({ length: 100 }, (_, i) => ({
+        ccy: "USDT",
+        amt: String(i),
+        ts: "1719792000000",
+        productId: `p${i}`,
+      })),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => page,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events.length).toBe(100);
+    // First page sets after=lastTs; second page detects stuck cursor and stops.
+    expect(fetchMock.mock.calls.length).toBe(2);
+  });
+
   it("fails closed on malformed row", () => {
     expect(() =>
       normalizeOkxEarn({

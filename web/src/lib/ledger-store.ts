@@ -40,7 +40,12 @@ export function getLedger(): LedgerSnapshot {
 export function replaceSourceEvents(
   source: SourceId,
   result: { status: SourceStatus; events: EarnEvent[]; error?: string },
-  opts?: { mergeFromMs?: number | null; mergeToMs?: number | null },
+  opts?: {
+    mergeFromMs?: number | null;
+    mergeToMs?: number | null;
+    /** When true, keep all existing source events and dedupe by id. */
+    upsertOnly?: boolean;
+  },
 ): LedgerSnapshot {
   const ledger = getLedger();
   const fromMs = opts?.mergeFromMs;
@@ -48,13 +53,21 @@ export function replaceSourceEvents(
   const merge =
     fromMs != null && toMs != null && Number.isFinite(fromMs) && Number.isFinite(toMs);
 
-  const others = ledger.events.filter((e) => {
-    if (e.source !== source) return true;
-    if (!merge) return false;
-    const t = Date.parse(e.earnedAt);
-    // Keep events outside the synced window
-    return t < fromMs! || t > toMs!;
-  });
+  let others: EarnEvent[];
+  if (opts?.upsertOnly) {
+    const incomingIds = new Set(result.events.map((e) => e.id));
+    others = ledger.events.filter(
+      (e) => e.source !== source || !incomingIds.has(e.id),
+    );
+  } else {
+    others = ledger.events.filter((e) => {
+      if (e.source !== source) return true;
+      if (!merge) return false;
+      const t = Date.parse(e.earnedAt);
+      // Keep events outside the synced window
+      return t < fromMs! || t > toMs!;
+    });
+  }
 
   const merged = [...others, ...result.events].sort(
     (a, b) => new Date(b.earnedAt).getTime() - new Date(a.earnedAt).getTime(),

@@ -12,10 +12,11 @@ import type {
 } from "./adapters/types";
 import { replaceSourceEvents, getLedger } from "./ledger-store";
 import {
-  LedgerPersistError,
+  getSourceHighWaterMs,
   persistSourceSync,
 } from "./ledger-db";
 import {
+  INCREMENTAL_OVERLAP_MS,
   type ResolvedSyncWindow,
   type SyncRange,
   filterEventsByWindow,
@@ -57,26 +58,73 @@ export interface SyncContext {
   luncAddress?: string | null;
   /** Resolved sync window; default all-time when omitted. */
   window?: ResolvedSyncWindow;
+  /**
+   * Force full historical re-fetch for CEX sources (All time + force).
+   * Ignored for custom date ranges.
+   */
+  forceFull?: boolean;
 }
 
-function fetchOptsFromWindow(window?: ResolvedSyncWindow): EarnFetchOptions {
-  if (!window || window.mode === "all") {
-    return { allTime: true };
-  }
-  return {
-    startMs: window.fromMs,
-    endMs: window.toMs,
-  };
-}
-
-function mergeOpts(window?: ResolvedSyncWindow): {
+export type CexPersistPlan = {
+  opts: EarnFetchOptions;
+  persistMode: "replace" | "merge" | "upsert";
   mergeFromMs?: number | null;
   mergeToMs?: number | null;
-} {
-  if (!window || window.mode === "all") return {};
+};
+
+/**
+ * Resolve CEX fetch + persist plan.
+ * - Custom range → fetch window, merge-replace in window
+ * - All time + forceFull / no high-water → full backfill, replace
+ * - All time with existing events → incremental from high-water − overlap
+ */
+export async function resolveCexSyncPlan(
+  ctx: SyncContext,
+  source: "binance" | "okx",
+  nowMs = Date.now(),
+): Promise<CexPersistPlan> {
+  const window =
+    ctx.window ?? { mode: "all" as const, fromMs: null, toMs: null };
+
+  if (window.mode === "custom") {
+    return {
+      opts: {
+        startMs: window.fromMs,
+        endMs: window.toMs,
+      },
+      persistMode: "merge",
+      mergeFromMs: window.fromMs,
+      mergeToMs: window.toMs,
+    };
+  }
+
+  if (ctx.forceFull) {
+    return {
+      opts: { allTime: true },
+      persistMode: "replace",
+    };
+  }
+
+  let highWater: number | null = null;
+  try {
+    highWater = await getSourceHighWaterMs(ctx.userId, source);
+  } catch {
+    highWater = null;
+  }
+
+  if (highWater == null) {
+    return {
+      opts: { allTime: true },
+      persistMode: "replace",
+    };
+  }
+
+  const startMs = Math.max(0, highWater - INCREMENTAL_OVERLAP_MS);
   return {
-    mergeFromMs: window.fromMs,
-    mergeToMs: window.toMs,
+    opts: { startMs, endMs: nowMs },
+    persistMode: "upsert",
+    mergeFromMs: startMs,
+    mergeToMs: nowMs,
   };
 }
 
@@ -125,11 +173,23 @@ async function commitSource(
   ctx: SyncContext,
   source: SourceId,
   result: AdapterResult,
+  plan?: Pick<CexPersistPlan, "persistMode" | "mergeFromMs" | "mergeToMs">,
 ): Promise<AdapterResult> {
-  const merge = mergeOpts(ctx.window);
   // Point-in-time sources always full-replace (no historical range).
   const isPointInTime = source === "monad_stake" || source === "lunc_stake";
-  const storeMerge = isPointInTime ? {} : merge;
+  const persistMode = isPointInTime
+    ? "replace"
+    : (plan?.persistMode ?? "replace");
+  const storeMerge =
+    persistMode === "merge"
+      ? { mergeFromMs: plan?.mergeFromMs, mergeToMs: plan?.mergeToMs }
+      : persistMode === "upsert"
+        ? {
+            mergeFromMs: plan?.mergeFromMs,
+            mergeToMs: plan?.mergeToMs,
+            upsertOnly: true,
+          }
+        : {};
 
   replaceSourceEvents(source, result, storeMerge);
 
@@ -144,9 +204,15 @@ async function commitSource(
       walletAddress:
         source === "monad_stake" ? ctx.walletAddress : undefined,
       chainId: ctx.chainId,
-      ...storeMerge,
+      persistMode,
+      ...(persistMode === "merge"
+        ? {
+            mergeFromMs: plan?.mergeFromMs,
+            mergeToMs: plan?.mergeToMs,
+          }
+        : {}),
     });
-  } catch (err) {
+  } catch {
     replaceSourceEvents(source, {
       status: "error",
       events: [],
@@ -175,24 +241,27 @@ export async function syncBinance(
         error: "Not connected",
       });
     }
+    const plan = await resolveCexSyncPlan(ctx, "binance");
     if (useFixtures()) {
       const events = filterEventsByWindow(
         await loadFixtureEvents("binance"),
         ctx.window ?? { mode: "all", fromMs: null, toMs: null },
       );
-      return commitSource(ctx, "binance", { status: "ok", events });
+      return commitSource(ctx, "binance", { status: "ok", events }, plan);
     }
-    const events = await fetchBinanceEarnEvents(
-      creds,
-      fetchOptsFromWindow(ctx.window),
+    const events = await fetchBinanceEarnEvents(creds, plan.opts);
+    return commitSource(
+      ctx,
+      "binance",
+      {
+        status: "ok",
+        events: filterEventsByWindow(
+          events,
+          ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+        ),
+      },
+      plan,
     );
-    return commitSource(ctx, "binance", {
-      status: "ok",
-      events: filterEventsByWindow(
-        events,
-        ctx.window ?? { mode: "all", fromMs: null, toMs: null },
-      ),
-    });
   } catch (err) {
     const error = userFacingAdapterError(
       err,
@@ -214,24 +283,27 @@ export async function syncOkx(
         error: "Not connected",
       });
     }
+    const plan = await resolveCexSyncPlan(ctx, "okx");
     if (useFixtures()) {
       const events = filterEventsByWindow(
         await loadFixtureEvents("okx"),
         ctx.window ?? { mode: "all", fromMs: null, toMs: null },
       );
-      return commitSource(ctx, "okx", { status: "ok", events });
+      return commitSource(ctx, "okx", { status: "ok", events }, plan);
     }
-    const events = await fetchOkxEarnEvents(
-      creds,
-      fetchOptsFromWindow(ctx.window),
+    const events = await fetchOkxEarnEvents(creds, plan.opts);
+    return commitSource(
+      ctx,
+      "okx",
+      {
+        status: "ok",
+        events: filterEventsByWindow(
+          events,
+          ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+        ),
+      },
+      plan,
     );
-    return commitSource(ctx, "okx", {
-      status: "ok",
-      events: filterEventsByWindow(
-        events,
-        ctx.window ?? { mode: "all", fromMs: null, toMs: null },
-      ),
-    });
   } catch (err) {
     const error = userFacingAdapterError(
       err,
@@ -331,12 +403,13 @@ export async function syncLuncStake(
 }
 
 export function buildSyncContext(
-  base: Omit<SyncContext, "window">,
+  base: Omit<SyncContext, "window" | "forceFull">,
   range?: SyncRange | null,
 ): SyncContext {
   return {
     ...base,
     window: resolveSyncRange(range),
+    forceFull: Boolean(range?.forceFull),
   };
 }
 

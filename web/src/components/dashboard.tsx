@@ -128,6 +128,7 @@ export function Dashboard({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [rangeMode, setRangeMode] = useState<SyncRangeMode>("all");
+  const [forceFullRefresh, setForceFullRefresh] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [currency, setCurrency] = useState<DisplayCurrency>("USD");
@@ -212,7 +213,10 @@ export function Dashboard({
     try {
       const range: SyncRange =
         rangeMode === "all"
-          ? { mode: "all" }
+          ? {
+              mode: "all",
+              ...(forceFullRefresh ? { forceFull: true } : {}),
+            }
           : { mode: "custom", from: fromDate, to: toDate };
 
       if (range.mode === "custom" && (!range.from || !range.to)) {
@@ -225,6 +229,9 @@ export function Dashboard({
         source,
         chainId: chainId ?? 10143,
         range,
+        ...(range.mode === "all" && forceFullRefresh
+          ? { forceFull: true }
+          : {}),
       };
       if (address) body.address = address;
       const res = await fetch("/api/sync", {
@@ -248,7 +255,11 @@ export function Dashboard({
         }
       }
       const modeLabel =
-        range.mode === "all" ? "all time" : `${range.from} → ${range.to}`;
+        range.mode === "all"
+          ? forceFullRefresh
+            ? "all time · full history"
+            : "all time"
+          : `${range.from} → ${range.to}`;
       if (!res.ok) {
         const parts: string[] = [
           json.error ?? "Sync failed. Nothing was saved — try again.",
@@ -259,9 +270,11 @@ export function Dashboard({
         setMessage(
           `Sync finished with errors (${modeLabel}). ${sourceErrors.join(" · ")}`,
         );
+        if (forceFullRefresh) setForceFullRefresh(false);
         void refreshRates();
       } else {
         setMessage(`Sync finished (${modeLabel}).`);
+        if (forceFullRefresh) setForceFullRefresh(false);
         void refreshRates();
       }
     } catch (err) {
@@ -419,20 +432,26 @@ export function Dashboard({
             />
           </label>
         </div>
+        {rangeMode === "all" ? (
+          <label className="sync-range-option sync-range-force">
+            <input
+              type="checkbox"
+              checked={forceFullRefresh}
+              onChange={(e) => setForceFullRefresh(e.target.checked)}
+              disabled={busy}
+            />
+            <span>Re-download full history</span>
+          </label>
+        ) : null}
         <p className="sync-range-hint">
-          Date range applies to Binance and OKX history. Monad and LUNC always
-          show current pending rewards.
+          Date range applies to Binance and OKX. After the first sync, All time
+          only picks up new rewards unless you re-download full history. Monad
+          and LUNC always show current pending rewards.
         </p>
       </fieldset>
 
       <p className="total">{totalLabel}</p>
       {ratesNote ? <p className="msg">{ratesNote}</p> : null}
-      {coverageGaps.length > 0 ? (
-        <p className="msg">
-          No price yet for {coverageGaps.join(", ")} — those amounts show as —
-          until the next price sync (or if there’s no market pair).
-        </p>
-      ) : null}
       {ledger?.wallet ? (
         <p className="msg mono">Wallet {ledger.wallet.address}</p>
       ) : null}

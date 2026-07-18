@@ -69,6 +69,29 @@ describe("Binance Simple Earn adapter", () => {
     expect(url).toContain("signature=");
     expect(url).toContain("startTime=");
     expect(url).toContain("endTime=");
+    expect(url).toContain("type=ALL");
+  });
+
+  it("retries on HTTP 429 then succeeds", async () => {
+    vi.useFakeTimers();
+    const payload = load("rewards-empty.json");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: async () => "rate",
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => payload,
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = fetchBinanceEarnEvents({ apiKey: "k", apiSecret: "s" });
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    vi.useRealTimers();
   });
 
   it("fetchBinanceEarnEvents passes custom date range", async () => {

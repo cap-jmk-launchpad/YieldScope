@@ -191,7 +191,8 @@ describe("sync with persistence", () => {
 
   it("syncBinance incremental uses high-water and upserts", async () => {
     process.env.USE_FIXTURE_DEMO = "0";
-    const highWater = Date.parse("2024-07-01T00:00:00.000Z");
+    const now = Date.now();
+    const highWater = now - 60 * 60 * 1000; // 1h ago — typical after first sync
     getSourceHighWaterMs.mockResolvedValue(highWater);
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -209,15 +210,19 @@ describe("sync with persistence", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const { syncBinance } = await import("../../web/src/lib/sync");
-    const { resolveSyncRange, INCREMENTAL_OVERLAP_MS } = await import(
+    const { INCREMENTAL_OVERLAP_MS } = await import(
       "../../web/src/lib/sync-range"
     );
     await syncBinance(
       { apiKey: "k", apiSecret: "s" },
-      { userId: "u1", window: resolveSyncRange({ mode: "all" }) },
+      {
+        userId: "u1",
+        window: { mode: "all", fromMs: null, toMs: null },
+      },
     );
     const url = String(fetchMock.mock.calls[0][0]);
-    expect(url).toContain(`startTime=${highWater - INCREMENTAL_OVERLAP_MS}`);
+    const expectedStart = highWater - INCREMENTAL_OVERLAP_MS;
+    expect(url).toContain(`startTime=${expectedStart}`);
     expect(url).toContain("type=ALL");
     expect(persistSourceSync).toHaveBeenCalledWith(
       expect.objectContaining({

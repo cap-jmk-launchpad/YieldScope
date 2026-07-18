@@ -8,6 +8,11 @@ export interface SyncRange {
   from?: string;
   /** Inclusive end — `YYYY-MM-DD` or ISO-8601 */
   to?: string;
+  /**
+   * When true with mode "all", re-download full history and replace the source
+   * ledger. Default false: subsequent "all time" syncs are incremental.
+   */
+  forceFull?: boolean;
 }
 
 export interface ResolvedSyncWindow {
@@ -25,6 +30,12 @@ export const BINANCE_MAX_WINDOW_MS = 30 * DAY_MS;
 
 /** How far back "all time" walks for CEX history (safety cap). */
 export const ALL_TIME_LOOKBACK_MS = 2 * 365 * DAY_MS;
+
+/**
+ * Overlap when incrementally syncing from the last high-water mark so late
+ * exchange rows near the cursor are not missed.
+ */
+export const INCREMENTAL_OVERLAP_MS = DAY_MS;
 
 export class SyncRangeError extends Error {
   constructor(message: string) {
@@ -126,16 +137,26 @@ export function allTimeBinanceChunks(nowMs = Date.now()): Array<{
   return chunkTimeRange(nowMs - ALL_TIME_LOOKBACK_MS, nowMs);
 }
 
+function parseForceFull(value: unknown): boolean {
+  return value === true || value === "true" || value === 1;
+}
+
 export function parseSyncRangeBody(
   body: unknown,
 ): SyncRange | undefined {
   if (!body || typeof body !== "object") return undefined;
   const r = body as Record<string, unknown>;
+  const bodyForce = parseForceFull(r.forceFull ?? r.forceFullRefresh);
+
   if (r.range == null) {
     // Flat from/to + optional mode on the body itself
     if (r.mode === "all" || (r.from == null && r.to == null && r.mode == null)) {
-      if (r.mode === "all") return { mode: "all" };
-      if (r.from == null && r.to == null) return undefined;
+      if (r.mode === "all") {
+        return bodyForce ? { mode: "all", forceFull: true } : { mode: "all" };
+      }
+      if (r.from == null && r.to == null) {
+        return bodyForce ? { mode: "all", forceFull: true } : undefined;
+      }
     }
     if (typeof r.from === "string" || typeof r.to === "string") {
       return {
@@ -151,7 +172,11 @@ export function parseSyncRangeBody(
   }
   const range = r.range as Record<string, unknown>;
   const mode = range.mode === "custom" ? "custom" : "all";
-  if (mode === "all") return { mode: "all" };
+  const forceFull =
+    parseForceFull(range.forceFull) || bodyForce;
+  if (mode === "all") {
+    return forceFull ? { mode: "all", forceFull: true } : { mode: "all" };
+  }
   return {
     mode: "custom",
     from: typeof range.from === "string" ? range.from : undefined,

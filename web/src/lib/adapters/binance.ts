@@ -14,6 +14,13 @@ import {
 
 const BINANCE_BASE = process.env.BINANCE_API_BASE ?? "https://api.binance.com";
 
+/** Mandatory on /rewardsRecord — ALL returns BONUS + REALTIME + REWARDS. */
+const REWARDS_TYPE = "ALL";
+
+/** Pause between chunk requests (endpoint weight is 150). Skip in tests. */
+const CHUNK_PAUSE_MS =
+  process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 250;
+
 export interface BinanceRewardRow {
   asset: string;
   rewards: string;
@@ -37,17 +44,36 @@ export class BinanceAdapterError extends Error {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readBody(res: Response): Promise<string> {
+  if (typeof res.text !== "function") return "";
+  try {
+    return await res.text();
+  } catch {
+    return "";
+  }
+}
+
+/** Stable id — no page/index (those break idempotent re-sync). */
+export function binanceEventId(row: BinanceRewardRow): string {
+  const project = row.projectId ?? row.type ?? "reward";
+  return `binance:${row.time}:${row.asset}:${project}:${row.rewards}`;
+}
+
 export function normalizeBinanceRewards(
   payload: BinanceRewardsResponse,
-  page = 0,
+  _page = 0,
 ): EarnEvent[] {
   const rows = payload.rows ?? [];
-  return rows.map((row, index) => {
+  return rows.map((row) => {
     if (!row.asset || row.rewards == null || row.time == null) {
       throw new BinanceAdapterError("Malformed Binance reward row");
     }
     return {
-      id: `binance:${row.time}:${row.asset}:${row.projectId ?? index}:p${page}`,
+      id: binanceEventId(row),
       source: "binance" as const,
       asset: row.asset,
       amount: String(row.rewards),
@@ -62,53 +88,79 @@ function signQuery(query: string, secret: string): string {
   return createHmac("sha256", secret).update(query).digest("hex");
 }
 
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 418 || status >= 500;
+}
+
 async function signedGet(
   path: string,
   params: Record<string, string | number>,
   creds: CexCredentials,
 ): Promise<unknown> {
-  if (creds.accessToken) {
-    const qs = new URLSearchParams(
-      Object.entries(params).map(([k, v]) => [k, String(v)]),
-    ).toString();
-    const res = await fetch(`${BINANCE_BASE}${path}?${qs}`, {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-    if (!res.ok) {
+  const maxAttempts = 4;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    let status = 0;
+    let body = "";
+
+    if (creds.accessToken) {
+      const qs = new URLSearchParams(
+        Object.entries(params).map(([k, v]) => [k, String(v)]),
+      ).toString();
+      const res = await fetch(`${BINANCE_BASE}${path}?${qs}`, {
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      status = res.status;
+      if (res.ok) return res.json();
+      body = await readBody(res);
+    } else {
+      if (!creds.apiKey || !creds.apiSecret) {
+        throw new BinanceAdapterError("Missing Binance credentials");
+      }
+
+      const timestamp = Date.now();
+      const merged = { ...params, timestamp };
+      const qs = Object.entries(merged)
+        .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+        .join("&");
+      const signature = signQuery(qs, creds.apiSecret);
+      const res = await fetch(
+        `${BINANCE_BASE}${path}?${qs}&signature=${signature}`,
+        {
+          headers: {
+            "X-MBX-APIKEY": creds.apiKey,
+          },
+        },
+      );
+      status = res.status;
+      if (res.ok) return res.json();
+      body = await readBody(res);
+    }
+
+    if (isRetryableStatus(status) && attempt < maxAttempts - 1) {
+      const unit =
+        process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1000;
+      const backoff = unit * 2 ** attempt;
+      if (backoff > 0) await sleep(backoff);
+      continue;
+    }
+
+    if (creds.accessToken) {
       throw new BinanceAdapterError(
-        `Binance OAuth HTTP ${res.status}`,
-        res.status,
+        `Binance OAuth HTTP ${status}`,
+        status,
       );
     }
-    return res.json();
-  }
-
-  if (!creds.apiKey || !creds.apiSecret) {
-    throw new BinanceAdapterError("Missing Binance credentials");
-  }
-
-  const timestamp = Date.now();
-  const merged = { ...params, timestamp };
-  const qs = Object.entries(merged)
-    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
-    .join("&");
-  const signature = signQuery(qs, creds.apiSecret);
-  const res = await fetch(`${BINANCE_BASE}${path}?${qs}&signature=${signature}`, {
-    headers: {
-      "X-MBX-APIKEY": creds.apiKey,
-    },
-  });
-  if (!res.ok) {
-    const body = await res.text();
     throw new BinanceAdapterError(
-      `Binance HTTP ${res.status}: ${body.slice(0, 200)}`,
-      res.status,
+      `Binance HTTP ${status}: ${body.slice(0, 200)}`,
+      status,
     );
   }
-  return res.json();
+
+  throw new BinanceAdapterError("Binance request failed after retries");
 }
 
 async function fetchWindow(
@@ -124,6 +176,7 @@ async function fetchWindow(
     const raw = (await signedGet(
       "/sapi/v1/simple-earn/flexible/history/rewardsRecord",
       {
+        type: REWARDS_TYPE,
         current: page,
         size,
         startTime: startMs,
@@ -157,7 +210,7 @@ function resolveChunks(opts?: EarnFetchOptions): {
     return { chunks: allTimeBinanceChunks(now), stopAfterEmpty: true };
   }
 
-  // Custom range bounds
+  // Custom / incremental range bounds
   if (opts?.startMs != null || opts?.endMs != null) {
     const endMs = opts.endMs ?? now;
     const startMs = opts.startMs ?? endMs - ALL_TIME_LOOKBACK_MS;
@@ -176,8 +229,8 @@ function resolveChunks(opts?: EarnFetchOptions): {
 
 /**
  * Fetch Binance Simple Earn flexible reward history.
- * Date range via startMs/endMs; allTime walks ≤30-day chunks (API max window).
- * Throws on API/auth failure (fail closed).
+ * Requires mandatory `type=ALL`. Date range via startMs/endMs; allTime walks
+ * ≤30-day chunks (API max window). Throws on API/auth failure (fail closed).
  */
 export const fetchBinanceEarnEvents: FetchEarnEvents = async (
   creds,
@@ -188,7 +241,10 @@ export const fetchBinanceEarnEvents: FetchEarnEvents = async (
   const events: EarnEvent[] = [];
   let emptyStreak = 0;
 
-  for (const { startMs, endMs } of chunks) {
+  for (let i = 0; i < chunks.length; i += 1) {
+    const { startMs, endMs } = chunks[i];
+    if (i > 0) await sleep(CHUNK_PAUSE_MS);
+
     const batch = await fetchWindow(creds, startMs, endMs);
     if (batch.length === 0) {
       emptyStreak += 1;

@@ -87,5 +87,11 @@ describe("sync-range", () => {
       to: "2024-01-31",
     });
     expect(parseSyncRangeBody({ source: "all" })).toBeUndefined();
+    expect(
+      parseSyncRangeBody({ range: { mode: "all" }, forceFull: true }),
+    ).toEqual({ mode: "all", forceFull: true });
+    expect(
+      parseSyncRangeBody({ range: { mode: "all", forceFull: true } }),
+    ).toEqual({ mode: "all", forceFull: true });
   });
 });
