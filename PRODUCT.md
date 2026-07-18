@@ -24,7 +24,7 @@ No Zerion sprawl. No tax engine. No APY farm browser.
 ## Auth
 
 1. **Email/password** via Supabase Auth (`/login`, `/register`). Registration requires email confirmation (sole bot gate — no captcha).
-2. **Read-only API keys** for Binance / OKX in Connect UI (session-scoped).
+2. **Read-only API keys** for Binance / OKX in Connect UI (encrypted server-side per user).
 3. Wallet connect (RainbowKit) for Monad stake reads and attestation.
 4. Paste Terra Classic `terra1…` address (or explorer link) for LUNC stake rewards.
 5. `/app/*` and sync/attest APIs are fail-closed without a session.

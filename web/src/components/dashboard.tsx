@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAccount } from "wagmi";
 import type { EarnEvent, SourceId, SourceStatus } from "@/lib/adapters/types";
 
 interface LedgerResponse {
@@ -39,6 +40,7 @@ export function Dashboard() {
   const [ledger, setLedger] = useState<LedgerResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const { address, chainId } = useAccount();
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/ledger");
@@ -57,20 +59,12 @@ export function Dashboard() {
     setBusy(true);
     setMessage(null);
     try {
-      const body: Record<string, unknown> = { source, chainId: 10143 };
-      const stored = sessionStorage.getItem("yieldscope.creds");
-      if (stored) {
-        const creds = JSON.parse(stored) as {
-          binance?: unknown;
-          okx?: unknown;
-          address?: string;
-          luncAddress?: string;
-        };
-        if (creds.binance) body.binance = creds.binance;
-        if (creds.okx) body.okx = creds.okx;
-        if (creds.address) body.address = creds.address;
-        if (creds.luncAddress) body.luncAddress = creds.luncAddress;
-      }
+      // Server loads saved Binance/OKX/LUNC/wallet from DB. Live wallet overrides if connected.
+      const body: Record<string, unknown> = {
+        source,
+        chainId: chainId ?? 10143,
+      };
+      if (address) body.address = address;
       const res = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -19,5 +19,7 @@ export const config = {
     "/api/checkpoint/:path*",
     "/api/ledger",
     "/api/ledger/:path*",
+    "/api/credentials",
+    "/api/credentials/:path*",
   ],
 };

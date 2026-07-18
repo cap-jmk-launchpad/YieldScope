@@ -11,6 +11,8 @@ const coverageInclude = [
   "web/src/lib/ledger-store.ts",
   "web/src/lib/merkle.ts",
   "web/src/lib/sync.ts",
+  "web/src/lib/credentials-crypto.ts",
+  "web/src/lib/credentials-db.ts",
 ];
 
 export default defineConfig({

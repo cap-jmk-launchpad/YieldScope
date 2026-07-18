@@ -44,7 +44,7 @@ export interface DbLedgerSnapshot {
   updatedAt: string;
 }
 
-async function ensureProfileId(userId: string, email?: string | null): Promise<string> {
+export async function ensureProfileId(userId: string, email?: string | null): Promise<string> {
   const admin = createAdminClient();
   const { data: existing, error: selectErr } = await admin
     .from("profiles")

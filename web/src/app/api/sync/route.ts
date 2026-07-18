@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import type { CexCredentials } from "@/lib/adapters/types";
 import { requireUser } from "@/lib/auth/require-user";
+import {
+  loadBinanceCredentials,
+  loadLuncAddress,
+  loadMonadWalletAddress,
+  loadOkxCredentials,
+} from "@/lib/credentials-db";
 import { loadDbLedger, LedgerPersistError } from "@/lib/ledger-db";
 import {
   syncBinance,
@@ -23,12 +29,26 @@ export async function POST(req: Request) {
     chainId?: number;
   };
 
+  const storedBinance =
+    body.binance ?? (await loadBinanceCredentials(gate.user.id));
+  const storedOkx = body.okx ?? (await loadOkxCredentials(gate.user.id));
+  const storedLunc =
+    body.luncAddress ??
+    (await loadLuncAddress(gate.user.id)) ??
+    process.env.LUNC_DEMO_ADDRESS ??
+    null;
+  const storedWallet =
+    body.address ??
+    (await loadMonadWalletAddress(gate.user.id)) ??
+    process.env.MONAD_DEMO_ADDRESS ??
+    null;
+
   const ctx = {
     userId: gate.user.id,
     email: gate.user.email,
-    walletAddress: body.address ?? null,
+    walletAddress: storedWallet,
     chainId: body.chainId ?? 10143,
-    luncAddress: body.luncAddress ?? null,
+    luncAddress: storedLunc,
   };
 
   const source = body.source ?? "all";
@@ -37,27 +57,22 @@ export async function POST(req: Request) {
   try {
     if (source === "binance" || source === "all") {
       results.binance = await syncBinance(
-        body.binance ?? readEnvBinance(),
+        storedBinance ?? readEnvBinance(),
         ctx,
       );
     }
     if (source === "okx" || source === "all") {
-      results.okx = await syncOkx(body.okx ?? readEnvOkx(), ctx);
+      results.okx = await syncOkx(storedOkx ?? readEnvOkx(), ctx);
     }
     if (source === "monad_stake" || source === "all") {
-      const address = (body.address ||
-        process.env.MONAD_DEMO_ADDRESS ||
-        null) as Address | null;
+      const address = storedWallet as Address | null;
       results.monad_stake = await syncMonadStake(address, {
         ...ctx,
         walletAddress: address,
       });
     }
     if (source === "lunc_stake" || source === "all") {
-      results.lunc_stake = await syncLuncStake(
-        body.luncAddress ?? process.env.LUNC_DEMO_ADDRESS ?? null,
-        ctx,
-      );
+      results.lunc_stake = await syncLuncStake(storedLunc, ctx);
     }
 
     const ledger = await loadDbLedger(gate.user.id);

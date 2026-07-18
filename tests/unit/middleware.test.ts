@@ -43,6 +43,18 @@ describe("supabase middleware updateSession", () => {
     expect(res.status).toBe(401);
   });
 
+  it("returns 401 JSON for credentials API when auth unconfigured", async () => {
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const { updateSession } = await import(
+      "../../web/src/lib/supabase/middleware"
+    );
+    const res = await updateSession(
+      makeReq("http://localhost/api/credentials", "PUT"),
+    );
+    expect(res.status).toBe(401);
+  });
+
   it("redirects /app to login when auth unconfigured", async () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

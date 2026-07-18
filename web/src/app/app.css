@@ -296,6 +296,21 @@
   font-size: 0.9rem;
 }
 
+.connect-panel .err {
+  color: var(--coral, #e07a5f);
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.connect-panel .saved-badge {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--mint);
+  border: 1px solid color-mix(in oklab, var(--mint) 45%, transparent);
+  padding: 0.2rem 0.5rem;
+  white-space: nowrap;
+}
+
 .connect-panel .wallet {
   font-family: var(--font-mono);
   font-size: 0.85rem;
