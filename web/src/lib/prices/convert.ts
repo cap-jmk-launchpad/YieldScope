@@ -6,6 +6,8 @@
  * Missing rates → null (caller shows native amount).
  */
 
+import { decimalToNumber } from "../decimal-amount";
+
 export type DisplayCurrency = "USD" | "EUR" | "BTC" | "ETH";
 
 export const DISPLAY_CURRENCIES: DisplayCurrency[] = [
@@ -147,7 +149,14 @@ export function sumInDisplayCurrency(
   let any = false;
 
   for (const row of rows) {
-    const native = Number(row.totalAmount);
+    const native =
+      typeof row.totalAmount === "number"
+        ? row.totalAmount
+        : decimalToNumber(String(row.totalAmount));
+    if (native == null || !Number.isFinite(native)) {
+      skipped.add(row.asset.toUpperCase());
+      continue;
+    }
     const converted = convertAmount(native, row.asset, currency, rates);
     if (converted == null) {
       skipped.add(row.asset.toUpperCase());
@@ -166,7 +175,7 @@ export function sumInDisplayCurrency(
   };
 }
 
-/** Format a converted amount for UI. */
+/** Format a converted amount for UI — keeps sub-cent dust visible. */
 export function formatDisplayAmount(
   value: number | null,
   currency: DisplayCurrency,
@@ -174,6 +183,11 @@ export function formatDisplayAmount(
   if (value == null || !Number.isFinite(value)) return "—";
   if (currency === "USD" || currency === "EUR") {
     const symbol = currency === "EUR" ? "€" : "$";
+    const abs = Math.abs(value);
+    // Sub-cent totals (e.g. LUNC dust) must not collapse to $0.00
+    if (abs > 0 && abs < 0.01) {
+      return `${symbol}${value.toPrecision(4)}`;
+    }
     return `${symbol}${value.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,

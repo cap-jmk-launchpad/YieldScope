@@ -5,6 +5,7 @@ import {
   encodeFunctionData,
   parseAbi,
 } from "viem";
+import { formatBaseUnits } from "../decimal-amount";
 import type { EarnEvent } from "./types";
 
 /** Monad staking precompile — docs.monad.xyz */
@@ -127,13 +128,9 @@ export function delegatorStatesToEarnEvents(
     }));
 }
 
-function formatMon(wei: bigint): string {
-  const neg = wei < 0n;
-  const v = neg ? -wei : wei;
-  const whole = v / 10n ** 18n;
-  const frac = (v % 10n ** 18n).toString().padStart(18, "0").replace(/0+$/, "");
-  const body = frac ? `${whole}.${frac}` : whole.toString();
-  return neg ? `-${body}` : body;
+/** Exact wei → MON decimal string (18 dp). Exported for tests / shared formatting. */
+export function formatMon(wei: bigint): string {
+  return formatBaseUnits(wei, 18);
 }
 
 export type RpcCall = (args: {

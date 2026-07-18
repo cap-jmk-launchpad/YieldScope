@@ -8,6 +8,7 @@ import {
   delegatorStatesToEarnEvents,
   encodeGetDelegatorCall,
   fetchMonadStakeEarnEvents,
+  formatMon,
   MonadStakeAdapterError,
 } from "../../web/src/lib/adapters/monad-stake";
 
@@ -53,6 +54,27 @@ describe("Monad staking reader", () => {
     expect(events[0].source).toBe("monad_stake");
     expect(events[0].asset).toBe("MON");
     expect(events[0].amount).toBe("2.5");
+  });
+
+  it("preserves 1-wei dust rewards exactly", () => {
+    expect(formatMon(1n)).toBe("0.000000000000000001");
+    const events = delegatorStatesToEarnEvents(
+      "0x1111111111111111111111111111111111111111",
+      [
+        {
+          validatorId: 1n,
+          stake: 1n,
+          accRewardPerToken: 0n,
+          unclaimedRewards: 1n,
+          deltaStake: 0n,
+          nextDeltaStake: 0n,
+          deltaEpoch: 0n,
+          nextDeltaEpoch: 0n,
+        },
+      ],
+      new Date("2024-07-01T00:00:00.000Z"),
+    );
+    expect(events[0]!.amount).toBe("0.000000000000000001");
   });
 
   it("returns empty when no stake and no rewards", () => {

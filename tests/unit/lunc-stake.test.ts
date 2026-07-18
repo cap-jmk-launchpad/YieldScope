@@ -38,6 +38,9 @@ describe("LUNC (Terra Classic) stake adapter", () => {
     expect(denomToAsset("uusd")).toBe("USTC");
     expect(microToHuman("1234567890")).toBe("1234.56789");
     expect(microToHuman("1000000")).toBe("1");
+    // Dust / fractional micros must not round to 0 via float+toFixed
+    expect(microToHuman("1")).toBe("0.000001");
+    expect(microToHuman("0.000000001")).toBe("0.000000000000001");
   });
 
   it("normalizes pending rewards from fixture", () => {

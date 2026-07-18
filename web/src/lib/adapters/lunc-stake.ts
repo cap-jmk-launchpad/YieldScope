@@ -1,3 +1,8 @@
+import {
+  isZeroDecimal,
+  scaleDownDecimal,
+  DecimalAmountError,
+} from "../decimal-amount";
 import type { EarnEvent } from "./types";
 
 export class LuncAdapterError extends Error {
@@ -75,16 +80,19 @@ export function denomToAsset(denom: string): string {
   return denom.toUpperCase();
 }
 
-/** Convert micro-denom amount string to human decimal string (default 6 dp). */
+/**
+ * Convert micro-denom amount string to human decimal string (default 6 dp).
+ * Uses exact decimal-string math — no Number()/toFixed — so dust rewards survive.
+ */
 export function microToHuman(amount: string, decimals = 6): string {
-  const n = Number(amount);
-  if (!Number.isFinite(n)) {
-    throw new LuncAdapterError(`Malformed reward amount: ${amount}`, "bad_amount");
+  try {
+    return scaleDownDecimal(amount, decimals);
+  } catch (err) {
+    if (err instanceof DecimalAmountError) {
+      throw new LuncAdapterError(`Malformed reward amount: ${amount}`, "bad_amount");
+    }
+    throw err;
   }
-  const human = n / 10 ** decimals;
-  // Trim trailing zeros without using scientific notation for typical stake sizes
-  const fixed = human.toFixed(8);
-  return fixed.replace(/\.?0+$/, "") || "0";
 }
 
 /**
@@ -112,13 +120,19 @@ export function normalizeLuncRewards(
       if (!coin?.denom || coin.amount === undefined || coin.amount === null) {
         throw new LuncAdapterError("Reward coin missing denom/amount", "malformed");
       }
-      const n = Number(coin.amount);
-      if (!Number.isFinite(n)) {
-        throw new LuncAdapterError(`Bad amount ${coin.amount}`, "bad_amount");
+      const micro = String(coin.amount);
+      if (isZeroDecimal(micro)) continue;
+      let amount: string;
+      try {
+        amount = microToHuman(micro);
+      } catch (err) {
+        if (err instanceof LuncAdapterError) {
+          throw new LuncAdapterError(`Bad amount ${coin.amount}`, "bad_amount");
+        }
+        throw err;
       }
-      if (n === 0) continue;
+      if (isZeroDecimal(amount)) continue;
       const asset = denomToAsset(coin.denom);
-      const amount = microToHuman(String(coin.amount));
       events.push({
         id: `lunc_stake:${address}:${entry.validator_address}:${coin.denom}`,
         source: "lunc_stake",
@@ -142,13 +156,15 @@ export function normalizeLuncRewards(
       if (!coin?.denom || coin.amount == null) {
         throw new LuncAdapterError("Total coin missing denom/amount", "malformed");
       }
-      const n = Number(coin.amount);
-      if (!Number.isFinite(n) || n === 0) continue;
+      const micro = String(coin.amount);
+      if (isZeroDecimal(micro)) continue;
+      const amount = microToHuman(micro);
+      if (isZeroDecimal(amount)) continue;
       events.push({
         id: `lunc_stake:${address}:total:${coin.denom}`,
         source: "lunc_stake",
         asset: denomToAsset(coin.denom),
-        amount: microToHuman(String(coin.amount)),
+        amount,
         earnedAt,
         rawType: "pending_total_reward",
         meta: { denom: coin.denom, microAmount: coin.amount, address },

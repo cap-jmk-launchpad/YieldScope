@@ -3,9 +3,16 @@
  *
  * Amounts are native asset strings on EarnEvent. Cross-asset totals only make
  * sense once a display-currency converter is provided (EUR/USD/BTC/ETH selector).
- * Without `convertAmount`, we still sum via Number(amount) so single-asset
- * ledgers chart correctly; multi-asset native sums are labeled as "native".
+ * Without `convertAmount`, native amounts are summed with exact decimal-string
+ * math so dust rewards accumulate correctly before a final Number() for charts.
  */
+
+import {
+  addDecimalStrings,
+  decimalToNumber,
+  isZeroDecimal,
+  sumDecimalStrings,
+} from "./decimal-amount";
 
 export interface ChartEarnEvent {
   asset: string;
@@ -46,12 +53,11 @@ export interface CurrencySlice {
 }
 
 export function defaultConvertAmount(_asset: string, amount: string): number {
-  const n = Number(amount);
-  return Number.isFinite(n) ? n : 0;
+  return decimalToNumber(amount) ?? 0;
 }
 
-function resolveConvert(opts?: EarningsChartOptions): ConvertAmount {
-  return opts?.convertAmount ?? defaultConvertAmount;
+function resolveConvert(opts?: EarningsChartOptions): ConvertAmount | null {
+  return opts?.convertAmount ?? null;
 }
 
 function displayUnit(opts?: EarningsChartOptions): string {
@@ -70,17 +76,47 @@ function utcYear(iso: string): number | null {
   return new Date(ms).getUTCFullYear();
 }
 
+function toChartNumber(decimalSum: string): number {
+  const n = decimalToNumber(decimalSum);
+  return n == null || !Number.isFinite(n) ? 0 : n;
+}
+
 /**
  * Daily period + cumulative earnings over time (UTC days), sorted ascending.
  * Invalid dates / non-finite amounts are skipped.
+ * Native (no convertAmount) path sums with exact decimal strings.
  */
 export function earningsOverTime(
   events: ChartEarnEvent[],
   opts?: EarningsChartOptions,
 ): TimePoint[] {
   const convert = resolveConvert(opts);
-  const byDay = new Map<string, number>();
 
+  if (!convert) {
+    const byDay = new Map<string, string>();
+    for (const e of events) {
+      const day = utcDayKey(e.earnedAt);
+      if (!day || isZeroDecimal(e.amount)) continue;
+      try {
+        byDay.set(day, addDecimalStrings(byDay.get(day) ?? "0", e.amount));
+      } catch {
+        /* skip malformed */
+      }
+    }
+    const days = [...byDay.keys()].sort();
+    let cumulativeDec = "0";
+    return days.map((date) => {
+      const periodDec = byDay.get(date) ?? "0";
+      cumulativeDec = addDecimalStrings(cumulativeDec, periodDec);
+      return {
+        date,
+        period: toChartNumber(periodDec),
+        cumulative: toChartNumber(cumulativeDec),
+      };
+    });
+  }
+
+  const byDay = new Map<string, number>();
   for (const e of events) {
     const day = utcDayKey(e.earnedAt);
     if (!day) continue;
@@ -104,8 +140,24 @@ export function earningsByYear(
   opts?: EarningsChartOptions,
 ): YearPoint[] {
   const convert = resolveConvert(opts);
-  const byYear = new Map<number, number>();
 
+  if (!convert) {
+    const byYear = new Map<number, string>();
+    for (const e of events) {
+      const year = utcYear(e.earnedAt);
+      if (year == null || isZeroDecimal(e.amount)) continue;
+      try {
+        byYear.set(year, addDecimalStrings(byYear.get(year) ?? "0", e.amount));
+      } catch {
+        /* skip malformed */
+      }
+    }
+    return [...byYear.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([year, total]) => ({ year, total: toChartNumber(total) }));
+  }
+
+  const byYear = new Map<number, number>();
   for (const e of events) {
     const year = utcYear(e.earnedAt);
     if (year == null) continue;
@@ -128,8 +180,42 @@ export function earningsByCurrency(
   opts?: EarningsChartOptions,
 ): CurrencySlice[] {
   const convert = resolveConvert(opts);
-  const byAsset = new Map<string, number>();
 
+  if (!convert) {
+    const byAsset = new Map<string, string>();
+    for (const e of events) {
+      const asset = e.asset.trim() || "UNKNOWN";
+      if (isZeroDecimal(e.amount)) continue;
+      try {
+        byAsset.set(asset, addDecimalStrings(byAsset.get(asset) ?? "0", e.amount));
+      } catch {
+        /* skip malformed */
+      }
+    }
+    const slices = [...byAsset.entries()]
+      .map(([asset, totalDec]) => ({
+        asset,
+        total: toChartNumber(totalDec),
+        share: 0,
+      }))
+      .filter((s) => s.total !== 0)
+      .sort((a, b) => b.total - a.total || a.asset.localeCompare(b.asset));
+
+    const grandDec = sumDecimalStrings(
+      [...byAsset.entries()]
+        .filter(([, t]) => !isZeroDecimal(t))
+        .map(([, t]) => t),
+    );
+    const grand = toChartNumber(grandDec);
+    if (grand > 0) {
+      for (const slice of slices) {
+        slice.share = slice.total / grand;
+      }
+    }
+    return slices;
+  }
+
+  const byAsset = new Map<string, number>();
   for (const e of events) {
     const asset = e.asset.trim() || "UNKNOWN";
     const value = convert(asset, e.amount);
@@ -157,7 +243,12 @@ export function chartDisplayUnit(opts?: EarningsChartOptions): string {
 /** True when charts have nothing meaningful to render. */
 export function hasChartData(events: ChartEarnEvent[]): boolean {
   return events.some((e) => {
-    const n = Number(e.amount);
-    return Number.isFinite(n) && n !== 0 && !Number.isNaN(Date.parse(e.earnedAt));
+    try {
+      return (
+        !isZeroDecimal(e.amount) && !Number.isNaN(Date.parse(e.earnedAt))
+      );
+    } catch {
+      return false;
+    }
   });
 }

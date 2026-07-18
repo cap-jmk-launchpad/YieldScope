@@ -57,6 +57,7 @@ describe("display currency conversion", () => {
     expect(formatDisplayAmount(12.345, "EUR")).toMatch(/€12\.35/);
     expect(formatDisplayAmount(0.01234567, "BTC")).toContain("BTC");
     expect(formatDisplayAmount(null, "USD")).toBe("—");
+    expect(formatDisplayAmount(0.00012, "USD")).not.toBe("$0.00");
   });
 
   it("persists preference in storage", () => {
