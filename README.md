@@ -88,6 +88,18 @@ Set `NEXT_PUBLIC_CHECKPOINT_ADDRESS` to the printed address. Optional verify via
 
 If no deployer key is available in this environment, the contract is still fully tested with Foundry; deploy before the demo attest step.
 
+## Public edge (yieldscope.d3bu7.com)
+
+TLS for `yieldscope.d3bu7.com` / `supabase.yieldscope.d3bu7.com` is terminated on blackpearl by `nginx-gitlab-edge`, not by the unused k8s Ingress. Vhost files live in `deploy/edge/`.
+
+```bash
+# On blackpearl (or scp then):
+sudo bash deploy/edge/apply-yieldscope-edge.sh
+sudo bash deploy/edge/apply-yieldscope-supabase-edge.sh
+```
+
+If Host routing regresses (wrong site / SSL name mismatch), the usual cause is a regenerated `/etc/nginx/gitlab-edge/nginx.conf` that dropped the `yieldscope*.conf` includes — re-run the apply scripts.
+
 ## Kubernetes (blackpearl / engine)
 
 Manifests: `deploy/k8s/yieldscope.yaml`  
