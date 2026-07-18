@@ -7,18 +7,27 @@
       "ccy": "USDT",
       "balChg": "1.25",
       "bal": "1001.25",
-      "type": "126",
+      "type": "400",
       "ts": "1722470400000",
-      "notes": "Simple Earn interest"
+      "notes": "Auto lend interest"
     },
     {
       "billId": "bill-eth-1",
       "ccy": "ETH",
       "balChg": "0.0008",
       "bal": "1.0008",
-      "type": "126",
+      "type": "400",
       "ts": "1722556800000",
-      "notes": "Simple Earn interest"
+      "notes": "Auto lend interest"
+    },
+    {
+      "billId": "bill-legacy-126",
+      "ccy": "USDC",
+      "balChg": "0.1",
+      "bal": "10.1",
+      "type": "126",
+      "ts": "1722600000000",
+      "notes": "legacy INTEREST_DEPOSIT"
     },
     {
       "billId": "bill-redeem",

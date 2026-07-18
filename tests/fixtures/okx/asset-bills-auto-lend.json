@@ -1,0 +1,15 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {
+      "billId": "al-1",
+      "ccy": "USDT",
+      "balChg": "0.33",
+      "bal": "500.33",
+      "type": "400",
+      "ts": "1735689600000",
+      "notes": "auto lend interest"
+    }
+  ]
+}

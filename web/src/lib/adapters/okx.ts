@@ -18,19 +18,35 @@ const DEFAULT_OKX_BASES = [
 ] as const;
 
 /**
- * Funding-account bill types that are earn credits (not deposits/redeems).
+ * Funding-account bill types that credit earn/interest (not sub/redeem).
  * @see https://www.okx.com/docs-v5/en/#rest-api-funding-asset-bills-details
  *
- * Simple Earn interest often lands here as type 126 even when
- * `/finance/savings/lending-history` returns an empty page (different
- * internal ledgers — live-class gap Jul 2026).
+ * OKX's public type table (Jul 2026) no longer lists legacy `126`
+ * INTEREST_DEPOSIT. Auto lend / Simple Earn interest is **`400`**; USDG
+ * auto-earn is **`408`**; deposit yield is **`89`**. Keep `126`/`99` for
+ * older ledgers. Querying only 126 was why sync stayed at 0 after 8f521fa.
  */
 export const OKX_EARN_ASSET_BILL_TYPES = new Set([
-  "126", // INTEREST_DEPOSIT — Simple Earn / savings interest
-  "99", // INVESTOR_TRANSFERRED_INTEREST_IN
-  "83", // STAKING_YIELD
-  "139", // ETH_2_0_EARNINGS
+  "400", // Auto lend interest (Simple Earn / Auto lend)
+  "408", // Auto earn USDG interest
+  "89", // Deposit yield
+  "83", // Staking yield
+  "139", // ETH Staking Earnings
+  "308", // Simple Earn Fixed — Interest distribution
+  "343", // Simple Earn Fixed — Interest
+  "307", // Simple Earn Fixed — early termination compensation
+  "309", // Simple Earn Fixed — extension compensation
+  "344", // Simple Earn Fixed — compensatory interest
+  "162", // Dual Investment profit
+  "209", // Dual Investment Lite profit
+  "328", // SOL staking LST reward
+  "350", // BTC staking Earnings
+  "126", // legacy INTEREST_DEPOSIT
+  "99", // legacy INVESTOR_TRANSFERRED_INTEREST_IN
 ]);
+
+/** Trading-account Auto Earn bill type (`earnAmt` is only set for this type). */
+export const OKX_ACCOUNT_AUTO_EARN_TYPE = "381";
 
 /** Sticky base after a successful auth (avoids re-probing every page). */
 let stickyOkxBase: string | null = null;
@@ -58,7 +74,13 @@ export function resetOkxBaseCache(): void {
 
 export interface OkxEarnRow {
   ccy: string;
-  amt: string;
+  /**
+   * Principal lent on this match — NOT interest.
+   * @see OKX agent-skills okx-cex-earn: amt = amount lent, earnings = interest
+   */
+  amt?: string;
+  /** Interest earned on this lending match (use this for ledger rows). */
+  earnings?: string;
   ts: string;
   type?: string;
   productId?: string;
@@ -127,10 +149,29 @@ function retryBackoffUnitMs(): number {
   return process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1000;
 }
 
+/**
+ * Interest amount for a lending-history row.
+ * Prefer `earnings` (official interest field). Only fall back to `amt` when
+ * the payload lacks an `earnings` key (legacy fixture/shape) — never treat
+ * principal `amt` as interest when `earnings` is present but zero/empty.
+ */
+export function lendingInterestAmount(row: OkxEarnRow): string | null {
+  if ("earnings" in row) {
+    if (row.earnings == null || row.earnings === "") return null;
+    const n = Number(row.earnings);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return String(row.earnings);
+  }
+  if (row.amt == null || row.amt === "") return null;
+  const n = Number(row.amt);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return String(row.amt);
+}
+
 /** Stable id — no page index (breaks idempotent re-sync). */
-export function okxEventId(row: OkxEarnRow): string {
+export function okxEventId(row: OkxEarnRow, interestAmt: string): string {
   const product = row.productId ?? row.type ?? "earn";
-  return `okx:${row.ts}:${row.ccy}:${product}:${row.amt}`;
+  return `okx:${row.ts}:${row.ccy}:${product}:${interestAmt}`;
 }
 
 export function normalizeOkxEarn(payload: OkxEarnResponse): EarnEvent[] {
@@ -141,20 +182,28 @@ export function normalizeOkxEarn(payload: OkxEarnResponse): EarnEvent[] {
     );
   }
   const rows = payload.data ?? [];
-  return rows.map((row) => {
-    if (!row.ccy || row.amt == null || !row.ts) {
+  const out: EarnEvent[] = [];
+  for (const row of rows) {
+    if (!row.ccy || !row.ts) {
       throw new OkxAdapterError("Malformed OKX earn row");
     }
-    return {
-      id: okxEventId(row),
+    const interest = lendingInterestAmount(row);
+    if (interest == null) continue; // matched / pending with no interest yet
+    out.push({
+      id: okxEventId(row, interest),
       source: "okx" as const,
       asset: row.ccy,
-      amount: String(row.amt),
+      amount: interest,
       earnedAt: new Date(Number(row.ts)).toISOString(),
       rawType: row.type ?? "SAVINGS_INTEREST",
-      meta: { productId: row.productId },
-    };
-  });
+      meta: {
+        productId: row.productId,
+        principalAmt: row.amt,
+        earnings: row.earnings,
+      },
+    });
+  }
+  return out;
 }
 
 /**
@@ -532,7 +581,11 @@ async function fetchLendingHistoryPages(
   return { events, rawRows };
 }
 
-async function savingsBalanceCcys(creds: CexCredentials): Promise<string[]> {
+async function savingsBalanceSnapshot(creds: CexCredentials): Promise<{
+  ccys: string[];
+  hasPrincipal: boolean;
+  hasReportedEarnings: boolean;
+}> {
   const raw = await okxGet("/api/v5/finance/savings/balance", {}, creds);
   if (raw.code !== "0") {
     throw new OkxAdapterError(
@@ -540,16 +593,26 @@ async function savingsBalanceCcys(creds: CexCredentials): Promise<string[]> {
       raw.code,
     );
   }
-  const rows = (raw.data ?? []) as Array<{ ccy?: string }>;
+  const rows = (raw.data ?? []) as Array<{
+    ccy?: string;
+    amt?: string;
+    earnings?: string;
+  }>;
   const out: string[] = [];
   const seen = new Set<string>();
+  let hasPrincipal = false;
+  let hasReportedEarnings = false;
   for (const row of rows) {
     const ccy = row.ccy?.trim();
     if (!ccy || seen.has(ccy)) continue;
     seen.add(ccy);
     out.push(ccy);
+    const amt = Number(row.amt);
+    if (Number.isFinite(amt) && amt > 0) hasPrincipal = true;
+    const earn = Number(row.earnings);
+    if (Number.isFinite(earn) && earn > 0) hasReportedEarnings = true;
   }
-  return out;
+  return { ccys: out, hasPrincipal, hasReportedEarnings };
 }
 
 /**
@@ -568,14 +631,25 @@ async function fetchAssetBillsForType(
   const seen = new Set<string>();
   let after: string | undefined;
   const maxPages = 100;
+  // bills-history is rate-limited to 1 req/s (User ID).
+  const historyPauseMs =
+    process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1100;
+  const pagePause =
+    path === "/api/v5/asset/bills-history"
+      ? Math.max(PAGE_PAUSE_MS(), historyPauseMs)
+      : PAGE_PAUSE_MS();
 
   for (let page = 0; page < maxPages; page += 1) {
-    if (page > 0) await sleep(PAGE_PAUSE_MS());
+    if (page > 0) await sleep(pagePause);
 
     const query: Record<string, string> = {
       limit: "100",
       type: billType,
     };
+    // bills-history defaults to timestamp paging; set explicitly.
+    if (path === "/api/v5/asset/bills-history") {
+      query.pagingType = "1";
+    }
     if (after) query.after = after;
 
     const raw = (await okxGet(path, query, creds)) as OkxApiResponse<
@@ -607,10 +681,12 @@ async function fetchAssetBillsForType(
 
     if (hitOlderThanStart && startMs != null) break;
 
-    const lastId = rows[rows.length - 1]?.billId;
-    if (!lastId || rows.length < 100) break;
-    if (after === lastId) break;
-    after = lastId;
+    // Asset bills `after`/`before` are timestamps (ms), not billId.
+    // @see GET /api/v5/asset/bills — after = records earlier than requested ts
+    const lastTs = rows[rows.length - 1]?.ts;
+    if (!lastTs || rows.length < 100) break;
+    if (after === lastTs) break;
+    after = lastTs;
   }
 
   return events;
@@ -643,7 +719,7 @@ async function fetchAllAssetEarnBills(
   return events;
 }
 
-/** Account bills with positive `earnAmt` (Trading Account Auto Earn). */
+/** Account bills with positive `earnAmt` (Trading Account Auto Earn, type 381). */
 async function fetchAccountEarnBills(
   creds: CexCredentials,
   startMs: number | null,
@@ -661,7 +737,10 @@ async function fetchAccountEarnBills(
     for (let page = 0; page < 100; page += 1) {
       if (page > 0) await sleep(PAGE_PAUSE_MS());
 
-      const query: Record<string, string> = { limit: "100" };
+      const query: Record<string, string> = {
+        limit: "100",
+        type: OKX_ACCOUNT_AUTO_EARN_TYPE,
+      };
       if (after) query.after = after;
 
       const raw = (await okxGet(path, query, creds)) as OkxApiResponse<
@@ -714,15 +793,15 @@ async function fetchAccountEarnBills(
 /**
  * Fetch OKX savings / earn interest history.
  *
- * Merges three fail-closed sources (deduped by id):
- * 1. `/finance/savings/lending-history` — Simple Earn flexible matched interest
- * 2. `/asset/bills` + `/asset/bills-history` — funding INTEREST_DEPOSIT etc.
- *    (covers months of earnings when lending-history returns empty pages)
- * 3. `/account/bills` + `/account/bills-archive` — rows with positive `earnAmt`
- *    (Trading Account Auto Earn)
+ * Merges fail-closed sources (deduped by id):
+ * 1. `/finance/savings/lending-history` — interest via `earnings` (not principal `amt`)
+ * 2. Per-ccy lending retry from savings balance when unfiltered history is empty
+ * 3. `/asset/bills` + `/asset/bills-history` — Auto lend interest **400**, USDG
+ *    **408**, Fixed **308/343**, staking yields, plus legacy 126/99
+ * 4. `/account/bills` + `/account/bills-archive` with `type=381` (Auto Earn `earnAmt`)
  *
- * When unfiltered lending-history is empty, retries per currency from savings
- * balance (some regional stacks require `ccy`).
+ * If every stream is empty but savings balance shows principal or cumulative
+ * earnings, throws (fail closed) so the UI is not silently "ok / 0".
  *
  * Optional startMs/endMs filters results; pagination stops once past startMs.
  * Throws on API/auth failure — callers must fail closed (no fake rows).
@@ -736,13 +815,14 @@ export const fetchOkxEarnEvents: FetchEarnEvents = async (
   const events: EarnEvent[] = [];
   const seen = new Set<string>();
 
+  const balance = await savingsBalanceSnapshot(creds);
+
   const lending = await fetchLendingHistoryPages(creds, { startMs, endMs });
   mergeUnique(events, seen, lending.events);
 
   // Empty unfiltered history → try per-ccy (regional / product quirk).
   if (lending.rawRows === 0) {
-    const ccys = await savingsBalanceCcys(creds);
-    for (const ccy of ccys) {
+    for (const ccy of balance.ccys) {
       const per = await fetchLendingHistoryPages(creds, {
         startMs,
         endMs,
@@ -757,6 +837,30 @@ export const fetchOkxEarnEvents: FetchEarnEvents = async (
 
   const accountEarn = await fetchAccountEarnBills(creds, startMs, endMs);
   mergeUnique(events, seen, accountEarn);
+
+  // Ops signal only — never logs secrets or full row payloads.
+  console.info(
+    "[okx-sync]",
+    JSON.stringify({
+      lending: lending.events.length,
+      assetBills: assetBills.length,
+      accountEarn: accountEarn.length,
+      total: events.length,
+      savingsCcys: balance.ccys.length,
+      hasPrincipal: balance.hasPrincipal,
+      hasReportedEarnings: balance.hasReportedEarnings,
+    }),
+  );
+
+  if (
+    events.length === 0 &&
+    (balance.hasPrincipal || balance.hasReportedEarnings)
+  ) {
+    throw new OkxAdapterError(
+      "OKX returned no interest history, but savings balance shows earn principal or cumulative earnings. Confirm the API key has Read permission (Funding + Account), use a live (not demo) key without IP whitelist mismatch, and try Re-download full history.",
+      "EMPTY_WITH_BALANCE",
+    );
+  }
 
   return events;
 };

@@ -15,7 +15,7 @@ YieldScope syncs **earn-only** streams (not full portfolios) into one dashboard,
 | Source | What we sync |
 |--------|----------------|
 | Binance | Simple Earn rewards / interest history |
-| OKX | Savings / Simple Earn interest: lending-history **plus** funding `INTEREST_DEPOSIT` bills (and account `earnAmt` for Auto Earn). Empty lending-history alone is not treated as “no earnings.” |
+| OKX | Savings / Simple Earn interest via lending-history **`earnings`** (not principal `amt`), funding Auto lend bills (**type 400** / USDG **408** / Fixed **308·343**, plus legacy 126), and account Auto Earn (**type 381** `earnAmt`). Empty lending-history alone is not “no earnings.” If balance shows principal but all streams are empty → error (not silent ok/0). |
 | Monad | Staking unclaimed + accrued rewards via precompile `0x1000` |
 | LUNC | Terra Classic claimed staking rewards (FCD account history / autostake withdraws) + current pending via LCD |
 
@@ -43,7 +43,7 @@ Last-used window preference is stored in the browser (`localStorage`).
 
 If exchange history in the ledger only spans a few days after a multi-year sync, use **Re-download full history** or sync a wider custom range (older truncating bugs capped loads at 500 rows).
 
-OKX: if status is `ok` with **0 events** while the OKX app shows months of Earn, use **Re-download full history**. Interest may live in funding bills (`INTEREST_DEPOSIT`) or account Auto Earn credits even when savings `lending-history` is empty — current sync merges those streams.
+OKX: if sync errors about missing interest while savings balance shows principal, or status is `ok` with **0 events** while the OKX app shows Earn, use **Re-download full history**. Interest is usually funding Auto lend (**type 400**) or account Auto Earn (**381**), not only legacy `INTEREST_DEPOSIT` (126). Confirm the API key is live (not demo) with Read permission.
 
 ## Fail closed
 

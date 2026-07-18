@@ -339,7 +339,8 @@ describe("OKX earn adapter", () => {
       code: "0",
       data: Array.from({ length: 100 }, (_, i) => ({
         ccy: "USDT",
-        amt: String(i),
+        amt: "1000",
+        earnings: String(i + 1),
         ts: "1719792000000",
         productId: `p${i}`,
       })),
@@ -549,12 +550,14 @@ describe("OKX earn adapter", () => {
           data: [
             {
               ccy: "USDT",
-              amt: "1",
+              amt: "1000",
+              earnings: "1",
               ts: String(Date.parse("2024-08-01T00:00:00.000Z")),
               productId: "p",
             },
           ],
         },
+        "savings/balance": load("lending-empty.json"),
       }),
     );
     const filtered = await fetchOkxEarnEvents(
@@ -569,23 +572,49 @@ describe("OKX earn adapter", () => {
 
   it("normalizes asset interest bills and skips non-earn types", () => {
     const events = normalizeOkxAssetBills(load("asset-bills-interest.json"));
-    expect(events).toHaveLength(2);
+    expect(events).toHaveLength(3);
     expect(events[0]).toMatchObject({
       source: "okx",
       asset: "USDT",
       amount: "1.25",
-      rawType: "ASSET_BILL_126",
+      rawType: "ASSET_BILL_400",
     });
     expect(events[1].asset).toBe("ETH");
+    expect(events[2]).toMatchObject({
+      asset: "USDC",
+      rawType: "ASSET_BILL_126",
+    });
     expect(
       assetBillToEarnEvent({
         billId: "x",
         ccy: "USDT",
         balChg: "-1",
-        type: "126",
+        type: "400",
         ts: "1",
       }),
     ).toBeNull();
+  });
+
+  it("uses lending earnings (not principal amt) for interest rows", () => {
+    const events = normalizeOkxEarn({
+      code: "0",
+      data: [
+        {
+          ccy: "USDT",
+          amt: "1000",
+          earnings: "0.55",
+          ts: "1719792000000",
+        },
+        {
+          ccy: "ETH",
+          amt: "2",
+          earnings: "0",
+          ts: "1719878400000",
+        },
+      ],
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].amount).toBe("0.55");
   });
 
   it("normalizes account earnAmt and ignores empty earnAmt trades", () => {
@@ -608,7 +637,7 @@ describe("OKX earn adapter", () => {
     ).toBeNull();
   });
 
-  it("merges funding interest bills when lending-history is empty", async () => {
+  it("merges Auto lend interest bills (type 400) when lending-history is empty", async () => {
     process.env.OKX_API_BASE = "https://www.okx.com";
     const fetchMock = okxFetchRouter({
       "lending-history": load("lending-empty.json"),
@@ -626,35 +655,35 @@ describe("OKX earn adapter", () => {
       passphrase: "p",
     });
 
-    // type 126 rows only (redemption type 76 dropped); per-ccy lending still empty
-    expect(events).toHaveLength(2);
+    // type 400 + legacy 126; redemption type 76 dropped
+    expect(events).toHaveLength(3);
     expect(events.map((e) => e.rawType).sort()).toEqual([
       "ASSET_BILL_126",
-      "ASSET_BILL_126",
+      "ASSET_BILL_400",
+      "ASSET_BILL_400",
     ]);
     expect(
-      fetchMock.mock.calls.some((c) => String(c[0]).includes("asset/bills")),
+      fetchMock.mock.calls.some((c) => String(c[0]).includes("type=400")),
     ).toBe(true);
-    expect(
-      fetchMock.mock.calls.some((c) =>
-        String(c[0]).includes("type=126"),
-      ),
-    ).toBe(true);
+    // Asset bills paginate by timestamp, not billId.
+    const billUrl = String(
+      fetchMock.mock.calls.find((c) => String(c[0]).includes("asset/bills?"))?.[0] ??
+        "",
+    );
+    expect(billUrl).toContain("type=400");
   });
 
-  it("merges account Auto Earn earnAmt when lending-history is empty", async () => {
+  it("merges account Auto Earn type=381 earnAmt when lending-history is empty", async () => {
     process.env.OKX_API_BASE = "https://www.okx.com";
-    vi.stubGlobal(
-      "fetch",
-      okxFetchRouter({
-        "lending-history": load("lending-empty.json"),
-        "savings/balance": load("lending-empty.json"),
-        "asset/bills": load("lending-empty.json"),
-        "asset/bills-history": load("lending-empty.json"),
-        "account/bills": load("account-bills-earn.json"),
-        "account/bills-archive": load("lending-empty.json"),
-      }),
-    );
+    const fetchMock = okxFetchRouter({
+      "lending-history": load("lending-empty.json"),
+      "savings/balance": load("lending-empty.json"),
+      "asset/bills": load("lending-empty.json"),
+      "asset/bills-history": load("lending-empty.json"),
+      "account/bills": load("account-bills-earn.json"),
+      "account/bills-archive": load("lending-empty.json"),
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const events = await fetchOkxEarnEvents({
       apiKey: "k",
@@ -664,6 +693,35 @@ describe("OKX earn adapter", () => {
     expect(events).toHaveLength(1);
     expect(events[0].rawType).toBe("ACCOUNT_EARN");
     expect(events[0].amount).toBe("0.42");
+    expect(
+      fetchMock.mock.calls.some((c) =>
+        String(c[0]).includes("account/bills") &&
+        String(c[0]).includes("type=381"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails closed when streams empty but savings balance shows principal", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": load("savings-balance.json"),
+        "asset/bills": load("lending-empty.json"),
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": load("lending-empty.json"),
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "k",
+        apiSecret: "s",
+        passphrase: "p",
+      }),
+    ).rejects.toThrow(/no interest history.*savings balance/i);
   });
 
   it("retries lending-history per savings balance ccy when unfiltered is empty", async () => {

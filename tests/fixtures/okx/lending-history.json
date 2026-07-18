@@ -4,14 +4,16 @@
   "data": [
     {
       "ccy": "USDT",
-      "amt": "0.55",
+      "amt": "1000",
+      "earnings": "0.55",
       "ts": "1719792000000",
       "type": "1",
       "productId": "USDT-SAVINGS"
     },
     {
       "ccy": "ETH",
-      "amt": "0.0012",
+      "amt": "2.5",
+      "earnings": "0.0012",
       "ts": "1719878400000",
       "type": "1",
       "productId": "ETH-SAVINGS"

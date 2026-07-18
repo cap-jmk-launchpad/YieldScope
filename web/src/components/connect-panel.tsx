@@ -196,8 +196,9 @@ export function ConnectPanel() {
         <p className="hint">
           Create a read-only API key in OKX → API. Include passphrase; leave
           trade and withdraw off. EEA/EU keys are detected automatically. Sync
-          pulls Simple Earn lending history and funding interest bills (and
-          Auto Earn credits when present).
+          pulls Simple Earn lending interest (`earnings`), funding Auto lend
+          bills (type 400+), Fixed Earn interest, and Trading Account Auto Earn
+          (type 381).
         </p>
         <label>
           API key
