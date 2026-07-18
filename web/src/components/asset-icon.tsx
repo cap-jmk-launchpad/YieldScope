@@ -41,11 +41,14 @@ export function AssetIcon({
   const alt = assetIconAlt(normalized);
   const initials = assetIconInitials(normalized);
 
+  const label = normalized || symbol;
+
   return (
     <span
       className={["asset-icon", `asset-icon--${size}`, className]
         .filter(Boolean)
         .join(" ")}
+      title={label || undefined}
     >
       {failed || !normalized ? (
         <span
@@ -54,7 +57,7 @@ export function AssetIcon({
           aria-hidden={showLabel ? true : undefined}
           role={showLabel ? undefined : "img"}
           aria-label={showLabel ? undefined : alt}
-          title={normalized || undefined}
+          title={label || undefined}
         >
           {initials}
         </span>
@@ -72,7 +75,7 @@ export function AssetIcon({
         />
       )}
       {showLabel ? (
-        <span className="asset-icon__label">{normalized || symbol}</span>
+        <span className="asset-icon__label">{label}</span>
       ) : null}
     </span>
   );

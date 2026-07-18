@@ -518,6 +518,13 @@ export function Dashboard({
       {byAssetRows.length > 0 ? (
         <div className="table-wrap">
           <table>
+            <colgroup>
+              <col className="col-asset" />
+              <col className="col-source" />
+              <col className="col-events" />
+              <col className="col-native" />
+              <col className="col-fiat" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Asset</th>
@@ -535,16 +542,22 @@ export function Dashboard({
                   activeCurrency,
                   rates,
                 );
+                const fiat = formatDisplayAmount(converted, activeCurrency);
+                const sourceLabel = SOURCE_LABEL[a.source];
                 return (
                   <tr key={`${a.source}:${a.asset}`}>
                     <td>
                       <CurrencyCell symbol={a.asset} />
                     </td>
-                    <td>{SOURCE_LABEL[a.source]}</td>
-                    <td className="mono">{a.eventCount}</td>
-                    <td className="mono">{a.totalAmount}</td>
-                    <td className="mono">
-                      {formatDisplayAmount(converted, activeCurrency)}
+                    <td title={sourceLabel}>{sourceLabel}</td>
+                    <td className="mono" title={String(a.eventCount)}>
+                      {a.eventCount}
+                    </td>
+                    <td className="mono" title={a.totalAmount}>
+                      {a.totalAmount}
+                    </td>
+                    <td className="mono" title={fiat}>
+                      {fiat}
                     </td>
                   </tr>
                 );
@@ -567,6 +580,13 @@ export function Dashboard({
 
       <div className="table-wrap">
         <table>
+          <colgroup>
+            <col className="col-when" />
+            <col className="col-source" />
+            <col className="col-asset" />
+            <col className="col-amount" />
+            <col className="col-fiat" />
+          </colgroup>
           <thead>
             <tr>
               <th>When</th>
@@ -592,16 +612,23 @@ export function Dashboard({
                   activeCurrency,
                   rates,
                 );
+                const when = new Date(e.earnedAt).toLocaleString();
+                const fiat = formatDisplayAmount(converted, activeCurrency);
+                const sourceLabel = SOURCE_LABEL[e.source];
                 return (
                   <tr key={e.id}>
-                    <td className="mono">{new Date(e.earnedAt).toLocaleString()}</td>
-                    <td>{SOURCE_LABEL[e.source]}</td>
+                    <td className="mono" title={when}>
+                      {when}
+                    </td>
+                    <td title={sourceLabel}>{sourceLabel}</td>
                     <td>
                       <CurrencyCell symbol={e.asset} />
                     </td>
-                    <td className="mono">{e.amount}</td>
-                    <td className="mono">
-                      {formatDisplayAmount(converted, activeCurrency)}
+                    <td className="mono" title={e.amount}>
+                      {e.amount}
+                    </td>
+                    <td className="mono" title={fiat}>
+                      {fiat}
                     </td>
                   </tr>
                 );

@@ -9,6 +9,9 @@
   padding: 1.75rem;
   max-width: 960px;
   margin: 0 auto;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .site-nav {
@@ -256,7 +259,9 @@
 }
 
 .dash .table-wrap {
-  overflow-x: auto;
+  overflow-x: clip;
+  max-width: 100%;
+  min-width: 0;
   border-top: 1px solid color-mix(in oklab, var(--muted) 30%, transparent);
 }
 
@@ -328,8 +333,32 @@
 
 .dash table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 0.9rem;
+}
+
+/* Prefer truncating asset labels & long amounts; keep Source / Events compact. */
+.dash .col-when {
+  width: 22%;
+}
+
+.dash .col-source {
+  width: 14%;
+}
+
+.dash .col-asset {
+  width: 20%;
+}
+
+.dash .col-amount,
+.dash .col-native,
+.dash .col-fiat {
+  width: 22%;
+}
+
+.dash .col-events {
+  width: 10%;
 }
 
 .dash th,
@@ -337,6 +366,11 @@
   text-align: left;
   padding: 0.65rem 0.4rem;
   border-bottom: 1px solid color-mix(in oklab, var(--muted) 20%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  max-width: 0;
 }
 
 .dash th {
@@ -349,11 +383,39 @@
 
 .dash .mono {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .dash .empty {
   color: var(--muted);
   padding: 1.5rem 0.4rem;
+  white-space: normal;
+  text-overflow: unset;
+  overflow: visible;
+  max-width: none;
+}
+
+@media (max-width: 520px) {
+  .dash table {
+    font-size: 0.8rem;
+  }
+
+  .dash th,
+  .dash td {
+    padding: 0.55rem 0.28rem;
+  }
+
+  .dash .col-when {
+    width: 26%;
+  }
+
+  .dash .col-source {
+    width: 12%;
+  }
+
+  .dash .col-events {
+    width: 12%;
+  }
 }
 
 /* Earnings charts */
@@ -498,6 +560,14 @@
   font-family: var(--font-mono);
   font-size: 0.9em;
   color: var(--paper);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash td .asset-icon {
+  max-width: 100%;
 }
 
 .btn-primary {
