@@ -11,6 +11,7 @@ export default function HomePage() {
         <nav className="landing-top-nav">
           <a href="#how">How</a>
           <a href="#sources">Sources</a>
+          <Link href="/blog">Blog</Link>
           <Link href="/register">Register</Link>
           <Link href="/login">Sign in</Link>
         </nav>
@@ -21,16 +22,15 @@ export default function HomePage() {
         <div className="landing-hero-plane" aria-hidden />
         <div className="landing-hero-copy">
           <h1 className="landing-brand">YieldScope</h1>
-          <p className="landing-headline">
-            What you actually earned — one ledger.
-          </p>
+          <p className="landing-headline">Solving scattered rewards.</p>
           <p className="landing-support">
-            Sync Binance Simple Earn, OKX savings, Monad staking, and LUNC
-            stake rewards. Attest a checkpoint on Monad so the number is portable.
+            Track all your crypto rewards in one place — Binance Simple Earn,
+            OKX savings, Monad staking, and LUNC. Attest a checkpoint on Monad
+            so the number is portable.
           </p>
           <div className="landing-ctas">
             <Link href="/register" className="btn-cta landing-cta">
-              Get started
+              Track my rewards
             </Link>
             <Link href="/login" className="btn-ghost landing-cta-ghost">
               Sign in
@@ -42,9 +42,10 @@ export default function HomePage() {
       <section className="landing-section" id="how">
         <h2>How it works</h2>
         <p>
-          Sign in, connect your exchanges and wallet, sync reward history into
-          one ledger, then optionally attest a checkpoint on Monad so the total
-          is explorer-verifiable.
+          Sign in, connect read-only exchange keys and your wallet, sync reward
+          history into one earn-only ledger, then optionally attest a checkpoint
+          on Monad so explorers can verify the sync window — proof, not
+          screenshots.
         </p>
       </section>
 
@@ -65,20 +66,23 @@ export default function HomePage() {
           </li>
         </ul>
         <p className="landing-note">
-          More chains (ETH, Lido, Base, …) coming later.
+          Phase 1 is depth over breadth. More chains later — not a full DeFi
+          portfolio tracker, not a tax suite.
         </p>
       </section>
 
       <section className="landing-section" id="checkpoint">
         <h2>Onchain checkpoint</h2>
         <p>
-          After you sync, attest your earnings total on Monad so explorers can
-          verify it — proof, not screenshots.
+          After you sync, attest a Merkle-style root of your earnings window on
+          Monad. The total becomes explorer-verifiable — a portable checkpoint
+          for what you actually earned.
         </p>
       </section>
 
       <footer className="landing-foot">
         <span>yieldscope.d3bu7.com</span>
+        <Link href="/blog">Blog</Link>
       </footer>
     </main>
   );

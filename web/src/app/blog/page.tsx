@@ -1,0 +1,47 @@
+import Link from "next/link";
+import { listBlogPosts } from "@/lib/blog";
+
+export const metadata = {
+  title: "Blog — YieldScope",
+  description:
+    "Notes on scattered crypto rewards, CeFi earn ledgers, and Monad attestation.",
+};
+
+export default function BlogIndexPage() {
+  const posts = listBlogPosts();
+
+  return (
+    <main className="blog-page">
+      <header className="blog-top">
+        <Link href="/" className="blog-top-mark">
+          YieldScope
+        </Link>
+        <nav className="blog-top-nav">
+          <Link href="/">Home</Link>
+          <Link href="/register">Get started</Link>
+        </nav>
+      </header>
+
+      <section className="blog-hero">
+        <h1>Blog</h1>
+        <p>
+          Scattered rewards, earn-only ledgers, and onchain checkpoints — written
+          in YieldScope’s voice.
+        </p>
+      </section>
+
+      <ul className="blog-list">
+        {posts.map((post) => (
+          <li key={post.slug}>
+            <Link href={`/blog/${post.slug}`}>
+              <span className="blog-list-title">{post.title}</span>
+              {post.description ? (
+                <span className="blog-list-desc">{post.description}</span>
+              ) : null}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}

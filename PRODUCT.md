@@ -1,6 +1,6 @@
 # YieldScope
 
-**One pane for what you actually earned** — Binance Simple Earn, OKX savings, and Monad staking — with an onchain checkpoint so the number is portable.
+**Solving scattered rewards. Track all your crypto rewards in one place** — Binance Simple Earn, OKX savings, Monad staking, and LUNC — with an onchain checkpoint so the number is portable.
 
 ## Problem
 

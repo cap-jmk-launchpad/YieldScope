@@ -42,3 +42,8 @@ contracts/broadcast/.agents/skills/impeccable/
 coverage/
 coverage-agent/
 coverage-*.log
+
+# Majico staging agent scratch
+scripts/majico-staging-out/
+scripts/tmp-*.mjs
+
