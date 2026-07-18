@@ -27,7 +27,8 @@
           </tr>
           <tr>
             <td style="padding:0 28px 28px;">
-              <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:12px 22px;background:#3dffa8;color:#05080f;text-decoration:none;font-weight:650;font-size:15px;">
+              {{/* token_hash → app (verifyOtp). Avoids GoTrue /verify GET consumed by email scanners. */}}
+              <a href="{{ .SiteURL }}/auth/reset-password?token_hash={{ .TokenHash }}&amp;type=recovery" style="display:inline-block;padding:12px 22px;background:#3dffa8;color:#05080f;text-decoration:none;font-weight:650;font-size:15px;">
                 Reset password
               </a>
             </td>
@@ -35,7 +36,7 @@
           <tr>
             <td style="padding:0 28px 28px;font-size:12px;line-height:1.5;color:#8a9bb0;">
               If the button does not work, open this link:<br />
-              <a href="{{ .ConfirmationURL }}" style="color:#3dffa8;word-break:break-all;">{{ .ConfirmationURL }}</a>
+              <a href="{{ .SiteURL }}/auth/reset-password?token_hash={{ .TokenHash }}&amp;type=recovery" style="color:#3dffa8;word-break:break-all;">{{ .SiteURL }}/auth/reset-password?token_hash={{ .TokenHash }}&amp;type=recovery</a>
             </td>
           </tr>
           <tr>

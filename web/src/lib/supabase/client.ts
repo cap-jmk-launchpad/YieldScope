@@ -1,4 +1,5 @@
 import { createBrowserClient } from "@supabase/ssr";
+import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 function publicEnv() {
@@ -18,15 +19,35 @@ export function createClient() {
 }
 
 /**
- * Implicit flow for password-recovery emails so the link works in any browser
- * (no PKCE code_verifier required from the tab that requested the reset).
+ * Browser client for the reset-password page.
+ * - detectSessionInUrl: false — we parse hash/?code=/token_hash ourselves (avoids
+ *   racing a one-time PKCE code with exchangeCodeForSession).
+ * Note: @supabase/ssr createBrowserClient always forces flowType "pkce".
  */
-export function createRecoveryClient(): SupabaseClient {
+export function createResetPasswordClient() {
   const { url, key } = publicEnv();
   return createBrowserClient(url, key, {
     auth: {
+      detectSessionInUrl: false,
+      autoRefreshToken: true,
+      persistSession: true,
+    },
+  });
+}
+
+/**
+ * Implicit-flow client used only to *request* recovery emails.
+ * Must use supabase-js directly — @supabase/ssr's createBrowserClient overwrites
+ * flowType to "pkce", which embeds a code_verifier and breaks cross-browser resets.
+ */
+export function createRecoveryClient(): SupabaseClient {
+  const { url, key } = publicEnv();
+  return createSupabaseJsClient(url, key, {
+    auth: {
       flowType: "implicit",
-      detectSessionInUrl: true,
+      detectSessionInUrl: false,
+      persistSession: false,
+      autoRefreshToken: false,
     },
   });
 }

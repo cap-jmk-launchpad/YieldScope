@@ -1,7 +1,10 @@
 "use client";
 
 import { safeRedirectPath } from "@/lib/auth/redirect";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import {
+  createResetPasswordClient,
+  isSupabaseConfigured,
+} from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -38,7 +41,8 @@ export default function AuthCallbackPage() {
       }
 
       try {
-        const supabase = createClient();
+        // detectSessionInUrl: false — avoid racing one-time ?code= with this exchange
+        const supabase = createResetPasswordClient();
 
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);

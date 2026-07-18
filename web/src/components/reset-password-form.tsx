@@ -3,49 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
-
-/**
- * Establish a recovery session from the email redirect, then allow password update.
- * GoTrue may land here with PKCE `?code=` or implicit `#access_token=...`.
- */
-async function establishRecoverySession(): Promise<boolean> {
-  const supabase = createClient();
-  const url = new URL(window.location.href);
-  const code = url.searchParams.get("code");
-  const tokenHash = url.searchParams.get("token_hash");
-  const otpType = url.searchParams.get("type");
-  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
-
-  if (hashParams.get("error") || url.searchParams.get("error")) {
-    return false;
-  }
-
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) throw error;
-  } else if (tokenHash && (otpType === "recovery" || otpType === "email")) {
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: otpType,
-    });
-    if (error) throw error;
-  } else if (hashParams.get("access_token") && hashParams.get("refresh_token")) {
-    const { error } = await supabase.auth.setSession({
-      access_token: hashParams.get("access_token")!,
-      refresh_token: hashParams.get("refresh_token")!,
-    });
-    if (error) throw error;
-  }
-
-  if (code || tokenHash || hashParams.get("access_token")) {
-    window.history.replaceState({}, "", "/auth/reset-password");
-  }
-
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  return Boolean(data.session);
-}
+import {
+  establishRecoverySession,
+  recoveryErrorMessage,
+} from "@/lib/auth/recovery-session";
+import {
+  createResetPasswordClient,
+  isSupabaseConfigured,
+} from "@/lib/supabase/client";
 
 export function ResetPasswordForm() {
   const router = useRouter();
@@ -62,22 +27,36 @@ export function ResetPasswordForm() {
     if (!configured) return;
     let cancelled = false;
 
+    // Snapshot immediately — before any async work or history.replaceState.
+    const href = window.location.href;
+
     void (async () => {
       try {
-        const ok = await establishRecoverySession();
+        const supabase = createResetPasswordClient();
+        const result = await establishRecoverySession(supabase, href);
+
+        if (
+          result.ok ||
+          href.includes("access_token=") ||
+          href.includes("token_hash=") ||
+          href.includes("code=")
+        ) {
+          window.history.replaceState({}, "", "/auth/reset-password");
+        }
+
         if (!cancelled) {
-          setHasSession(ok);
-          if (!ok) {
-            setError(
-              "Reset link expired or missing. Request a new password reset email.",
-            );
+          setHasSession(result.ok);
+          if (!result.ok) {
+            setError(recoveryErrorMessage(result));
           }
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setHasSession(false);
           setError(
-            "Reset link expired or invalid. Request a new password reset email.",
+            err instanceof Error
+              ? `Could not open reset session: ${err.message}`
+              : "Could not open reset session. Request a new password reset email.",
           );
         }
       } finally {
@@ -113,7 +92,7 @@ export function ResetPasswordForm() {
 
     setBusy(true);
     try {
-      const supabase = createClient();
+      const supabase = createResetPasswordClient();
       const { error: authError } = await supabase.auth.updateUser({ password });
       if (authError) {
         setError(authError.message);
