@@ -2,7 +2,7 @@
   {
     "slug": "adding-lunc-stake-rewards-to-a-multi-venue-earn-ledger",
     "title": "Adding LUNC stake rewards to a multi-venue earn ledger",
-    "description": "How Terra Classic pending stake rewards fit YieldScope’s Phase 1 earn ledger."
+    "description": "How Terra Classic pending stake rewards fit YieldScope\u2019s Phase 1 earn ledger."
   },
   {
     "slug": "all-time-vs-custom-sync-windows-for-exchange-earn-history",
@@ -10,14 +10,34 @@
     "description": "How YieldScope sync windows work for Binance/OKX history versus onchain snapshots."
   },
   {
+    "slug": "attesting-an-earnings-checkpoint-what-explorers-can-and-cannot-see",
+    "title": "Attesting an earnings checkpoint: what explorers can and cannot see",
+    "description": "What posting an EarningsCheckpoint root on Monad proves \u2014 and what stays private."
+  },
+  {
     "slug": "earn-ledger-tax-suite-what-yieldscope-does-and-does-not-claim",
-    "title": "Earn ledger ≠ tax suite: what YieldScope does and does not claim",
+    "title": "Earn ledger \u2260 tax suite: what YieldScope does and does not claim",
     "description": "Clear anti-positioning versus Koinly-style tax tools and portfolio PnL products."
+  },
+  {
+    "slug": "fail-closed-source-chips-why-broken-adapters-must-not-invent-rows",
+    "title": "Fail-closed source chips: why broken adapters must not invent rows",
+    "description": "ok, error, and not_connected \u2014 the status model that keeps a rewards ledger trustworthy."
   },
   {
     "slug": "from-ledger-rows-to-merkle-root-making-a-sync-window-verifiable",
     "title": "From ledger rows to Merkle root: making a sync window verifiable",
     "description": "How YieldScope turns earn rows into an attest-able Merkle-style root."
+  },
+  {
+    "slug": "from-spreadsheet-to-ledger-migrating-your-crypto-rewards-tracking",
+    "title": "From spreadsheet to ledger: migrating your crypto rewards tracking",
+    "description": "A practical path from monthly CSV paste to a synced earn-only ledger with optional Monad attestation."
+  },
+  {
+    "slug": "how-to-connect-binance-and-okx-read-only-keys-for-a-rewards-ledger",
+    "title": "How to connect Binance and OKX read-only keys for a rewards ledger",
+    "description": "A practical checklist for scoping API keys so YieldScope can sync earn history without trading permissions."
   },
   {
     "slug": "monad-staking-rewards-vs-exchange-earn-keep-the-streams-separate",
@@ -28,6 +48,11 @@
     "slug": "okx-savings-rewards-what-belongs-in-an-earn-only-ledger",
     "title": "OKX savings rewards: what belongs in an earn-only ledger",
     "description": "How do OKX savings and earn rewards show up in a personal ledger?"
+  },
+  {
+    "slug": "phase-1-scope-honesty-binance-okx-monad-lunc-and-nothing-else-yet",
+    "title": "Phase 1 scope honesty: Binance, OKX, Monad, LUNC \u2014 and nothing else yet",
+    "description": "Why YieldScope refuses Zerion-breadth DeFi in Phase 1 and how marketing can still say 'rewards'."
   },
   {
     "slug": "proof-not-screenshots-earningscheckpoint-on-monad",
@@ -63,5 +88,15 @@
     "slug": "the-first-mover-advantage-how-yieldscope-consolidates-fragmented-passive-income",
     "title": "The First Mover Advantage: How YieldScope Consolidates Fragmented Passive Income Streams",
     "description": "Can I consolidate yield data from Binance/OKX and decentralized staking into one simple ledger?"
+  },
+  {
+    "slug": "when-okx-shows-earn-but-your-ledger-says-zero",
+    "title": "When OKX shows Earn but your ledger says zero",
+    "description": "Why empty lending-history alone is not 'no earnings' \u2014 and how to recover a real OKX earn sync."
+  },
+  {
+    "slug": "why-earn-only-beats-balance-sheets-for-monthly-rewards-questions",
+    "title": "Why earn-only beats balance sheets for monthly rewards questions",
+    "description": "Portfolio balances answer how much you hold. Earn-only ledgers answer what you made."
   }
 ]

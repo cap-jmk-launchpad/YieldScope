@@ -39,7 +39,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="landing-section" id="how">
+      <section className="landing-section landing-reveal" id="how">
         <h2>How it works</h2>
         <p>
           Sign in, connect read-only exchange keys and your wallet, sync reward
@@ -49,7 +49,7 @@ export default function HomePage() {
         </p>
       </section>
 
-      <section className="landing-section" id="sources">
+      <section className="landing-section landing-reveal" id="sources">
         <h2>Sources</h2>
         <ul className="landing-sources">
           <li>
@@ -71,7 +71,7 @@ export default function HomePage() {
         </p>
       </section>
 
-      <section className="landing-section" id="checkpoint">
+      <section className="landing-section landing-reveal" id="checkpoint">
         <h2>Onchain checkpoint</h2>
         <p>
           After you sync, attest a Merkle-style root of your earnings window on

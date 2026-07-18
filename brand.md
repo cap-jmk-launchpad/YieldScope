@@ -11,8 +11,9 @@ YieldScope is the **dedicated earnings checkpoint** — calm, precise, proof-ori
 
 - **Problem:** Rewards are scattered across exchanges and chains.
 - **Promise:** One place to track your crypto rewards.
-- **Phase 1 honesty:** Binance Simple Earn, OKX savings, Monad staking, and LUNC stake rewards — not every chain yet. Voice may say “rewards”; product docs stay earn-accurate.
+- **Phase 1 honesty:** Binance Simple Earn, OKX savings/earn, Monad staking, and LUNC stake rewards — not every chain yet. Voice may say “rewards”; product docs stay earn-accurate.
 - **Differentiator:** Earn-only ledger + onchain `EarningsCheckpoint` on Monad. Not Zerion-breadth DeFi. Not Koinly taxes.
+- **Name collision:** Other “YieldScope” products may compare passive-income assets broadly — we mean **CEX earn + specific stake streams + attestation**, not asset shopping.
 
 ## Voice
 
@@ -22,8 +23,16 @@ YieldScope is the **dedicated earnings checkpoint** — calm, precise, proof-ori
 
 ### Vocabulary
 
-**Use:** rewards, earned, ledger, checkpoint, sync, attestation, scattered, consolidate.  
+**Use:** rewards, earned, ledger, checkpoint, sync, attestation, scattered, consolidate, fail-closed.  
 **Avoid:** moon, pump, farm APY as a product promise, “portfolio performance” when meaning earn-only, get-rich framing.
+
+### Copy examples
+
+| Don’t | Do |
+|-------|-----|
+| Build wealth with AI yield | Track what you actually earned across Binance, OKX, Monad, and LUNC |
+| Maximize APY across every chain | Sync Phase 1 earn streams into one ledger |
+| Portfolio performance dashboard | Earn-only ledger — rewards, not the whole spot bag |
 
 ## Name treatment
 
@@ -51,4 +60,8 @@ We do not claim full DeFi coverage, tax exports, or farm discovery in Phase 1.
 
 ## Primary CTA
 
-Get started / Track my rewards — outcome-first, not feature lists.
+**Track my rewards** — outcome-first, not feature lists.
+
+## Agent handoff
+
+Full Majico narrative: [`docs/majico/BRAND.md`](docs/majico/BRAND.md). Design tokens + product dusk mapping: [`design.md`](design.md).

@@ -18,6 +18,12 @@ Rewards are scattered across Binance, OKX, Monad staking, and LUNC. Answering �
 | Differentiator | Earn-only ledger + `EarningsCheckpoint` on Monad |
 | Anti-positioning | Not Zerion (full DeFi), not Koinly (tax), not APY farm browsers |
 
+## Landing + motion (brand surface)
+
+- Hero: **YieldScope** wordmark → “Solving scattered rewards.” → one support sentence naming Phase 1 sources → **Track my rewards** / Sign in.
+- Motion: wordmark rise (~600ms), cyan radial pulse (8s opacity loop), CTA underline draw on hover, section reveal on scroll; all honor `prefers-reduced-motion`.
+- No hero cards, stat strips, or floating badges.
+
 ## Competitors & differentiation
 
 | Competitor | What they do | Gap vs YieldScope |
@@ -42,3 +48,7 @@ Rewards are scattered across Binance, OKX, Monad staking, and LUNC. Answering �
 ### Anti-positioning
 
 Phase 1 does **not** try to beat Zerion at DeFi coverage or Koinly at taxes. We own the **personal CeFi earn + Monad stake ledger + attestation** niche.
+
+## Brand source
+
+Majico staging project `27834995-58fb-4c5c-98fc-76936193f679` — see [`brand.md`](../brand.md), [`design.md`](../design.md), [`docs/majico/`](majico/).
