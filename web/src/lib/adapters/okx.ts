@@ -6,7 +6,7 @@ import type {
   FetchEarnEvents,
 } from "./types";
 
-/** Global + EEA hosts. EEA API keys return 50119 on www.okx.com. */
+/** Global + EEA hosts. EEA API keys return 50119 on www.okx.com (live-verified Jul 2026). */
 const DEFAULT_OKX_BASES = [
   "https://www.okx.com",
   "https://eea.okx.com",
