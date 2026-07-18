@@ -193,10 +193,6 @@
   cursor: not-allowed;
 }
 
-.dash .sync-range-force {
-  margin-top: 0.5rem;
-}
-
 .dash .sync-range-hint {
   margin: 0;
   font-size: 0.8rem;
