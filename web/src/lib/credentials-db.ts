@@ -145,12 +145,10 @@ export function validateSavePayload(input: {
       // Normalize explorer links → terra1…; reject garbage early.
       data.luncAddress = parseLuncAddress(lunc);
     } catch (err) {
+      // parseLuncAddress always throws LuncAdapterError (Error subclass).
       return {
         ok: false,
-        error:
-          err instanceof Error
-            ? err.message
-            : "Invalid Terra Classic address — paste a terra1… address or explorer link",
+        error: (err as Error).message,
       };
     }
     any = true;
