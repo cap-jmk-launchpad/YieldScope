@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  ASSET_LOGOS_BUCKET,
+  ASSET_TOKENS_PUBLIC_DIR,
+  VENDORED_ASSET_SLUGS,
   assetIconAlt,
   assetIconInitials,
   assetIconSlug,
   assetIconUrl,
   normalizeAssetSymbol,
-  supabasePublicUrl,
 } from "../../web/src/lib/asset-icon";
 
 describe("asset-icon helpers", () => {
@@ -22,18 +22,23 @@ describe("asset-icon helpers", () => {
     expect(assetIconSlug("WETH")).toBe("eth");
     expect(assetIconSlug("EUR")).toBe("eur");
     expect(assetIconSlug("MON")).toBe("mon");
+    expect(assetIconSlug("POL")).toBe("matic");
+    expect(assetIconSlug("WBTC")).toBe("btc");
   });
 
-  it("builds public Supabase Storage URLs", () => {
-    const base = supabasePublicUrl();
-    expect(assetIconUrl("ETH")).toBe(
-      `${base}/storage/v1/object/public/${ASSET_LOGOS_BUCKET}/eth.svg`,
-    );
-    expect(assetIconUrl("MON")).toContain(
-      `/storage/v1/object/public/${ASSET_LOGOS_BUCKET}/mon.svg`,
-    );
+  it("builds local public asset URLs", () => {
+    expect(assetIconUrl("ETH")).toBe(`${ASSET_TOKENS_PUBLIC_DIR}/eth.svg`);
+    expect(assetIconUrl("MON")).toBe(`${ASSET_TOKENS_PUBLIC_DIR}/mon.svg`);
     expect(assetIconUrl("BTC")).not.toContain("cdn.jsdelivr.net");
-    expect(assetIconUrl("BTC")).not.toContain("/assets/icons/");
+    expect(assetIconUrl("BTC")).not.toContain("supabase");
+    expect(assetIconUrl("BTC")).toContain("/assets/tokens/");
+  });
+
+  it("lists vendored slugs used by the UI", () => {
+    expect(VENDORED_ASSET_SLUGS).toContain("btc");
+    expect(VENDORED_ASSET_SLUGS).toContain("mon");
+    expect(VENDORED_ASSET_SLUGS).toContain("lunc");
+    expect(VENDORED_ASSET_SLUGS).toContain("usdt");
   });
 
   it("provides accessible alt and initials", () => {

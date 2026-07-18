@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { assetChartColor } from "@/lib/asset-color";
 import {
   assetIconAlt,
   assetIconInitials,
@@ -40,6 +41,7 @@ export function AssetIcon({
   const src = assetIconUrl(normalized);
   const alt = assetIconAlt(normalized);
   const initials = assetIconInitials(normalized);
+  const brand = assetChartColor(normalized);
 
   const label = normalized || symbol;
 
@@ -53,7 +55,13 @@ export function AssetIcon({
       {failed || !normalized ? (
         <span
           className="asset-icon__fallback"
-          style={{ width: px, height: px, fontSize: Math.max(9, px * 0.45) }}
+          style={{
+            width: px,
+            height: px,
+            fontSize: Math.max(9, px * 0.45),
+            background: brand,
+            color: "#05080f",
+          }}
           aria-hidden={showLabel ? true : undefined}
           role={showLabel ? undefined : "img"}
           aria-label={showLabel ? undefined : alt}
@@ -62,7 +70,7 @@ export function AssetIcon({
           {initials}
         </span>
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element -- Supabase Storage URL + onError fallback
+        // eslint-disable-next-line @next/next/no-img-element -- local SVG + onError fallback
         <img
           className="asset-icon__img"
           src={src}

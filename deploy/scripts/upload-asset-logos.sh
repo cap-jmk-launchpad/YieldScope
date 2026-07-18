@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Create public bucket `asset-logos` on YieldScope Supabase Storage and seed SVGs.
-# Logos are NOT committed to git — fetched once from cryptocurrency-icons (or
-# generated for MON/LUNC/USTC) and stored in the bucket.
+# Optional: mirror vendored logos from web/public/assets/tokens/ into Supabase
+# Storage bucket `asset-logos`. The Next.js app serves local files first —
+# this script is only needed if you still want CDN/Storage copies.
+#
+# Prefer refreshing local SVGs with:
+#   node scripts/refresh-asset-logos.mjs
 #
 # Usage (from repo root, with kubeconfig):
 #   export KUBECONFIG="$HOME/.kube/config-homelab"
@@ -9,8 +12,8 @@
 #
 # Convention:
 #   bucket:  asset-logos
-#   object:  {slug}.svg          (lowercase: btc.svg, eth.svg, mon.svg, …)
-#   public:  https://supabase.yieldscope.d3bu7.com/storage/v1/object/public/asset-logos/{slug}.svg
+#   object:  {slug}.svg
+#   local:   web/public/assets/tokens/{slug}.svg
 set -euo pipefail
 
 NS="${SUPABASE_NS:-supabase-yieldscope}"
@@ -18,9 +21,11 @@ BUCKET="${ASSET_LOGOS_BUCKET:-asset-logos}"
 PUBLIC_URL="${SUPABASE_PUBLIC_URL:-https://supabase.yieldscope.d3bu7.com}"
 API="${PUBLIC_URL}/storage/v1"
 CDN="https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+LOCAL_DIR="${ROOT}/web/public/assets/tokens"
 
-# Pack icons to pull + local-generated overrides (slug)
-CDN_SLUGS=(btc eth usdt usdc usd eur gbp jpy sol bnb)
+# Prefer local vendored files; CDN + custom as fallbacks
+CDN_SLUGS=(btc eth usdt usdc dai tusd usd eur gbp jpy sol bnb xrp ada doge link avax dot atom trx matic busd fdusd usde)
 CUSTOM_SLUGS=(mon lunc ustc)
 
 require_cmd() {
@@ -102,19 +107,25 @@ upload_file() {
     "${API}/object/${BUCKET}/${object}" >/dev/null
 }
 
-echo "==> fetch CDN icons → $TMP"
+echo "==> upload icons (local vendored → CDN → custom)"
 for slug in "${CDN_SLUGS[@]}"; do
-  if curl -sfL "${CDN}/${slug}.svg" -o "${TMP}/${slug}.svg"; then
+  if [[ -f "${LOCAL_DIR}/${slug}.svg" ]]; then
+    upload_file "$slug" "${LOCAL_DIR}/${slug}.svg"
+  elif curl -sfL "${CDN}/${slug}.svg" -o "${TMP}/${slug}.svg"; then
     upload_file "$slug" "${TMP}/${slug}.svg"
   else
-    echo "  WARN: CDN miss for ${slug}.svg — skip (app falls back to initials)"
+    echo "  WARN: miss for ${slug}.svg — skip (app falls back to initials)"
   fi
 done
 
-echo "==> generate custom icons (MON / LUNC / USTC)"
+echo "==> custom icons (MON / LUNC / USTC)"
 for slug in "${CUSTOM_SLUGS[@]}"; do
-  write_custom "$slug"
-  upload_file "$slug" "${TMP}/${slug}.svg"
+  if [[ -f "${LOCAL_DIR}/${slug}.svg" ]]; then
+    upload_file "$slug" "${LOCAL_DIR}/${slug}.svg"
+  else
+    write_custom "$slug"
+    upload_file "$slug" "${TMP}/${slug}.svg"
+  fi
 done
 
 echo "==> verify public URL"
