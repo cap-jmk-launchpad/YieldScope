@@ -3,6 +3,8 @@
 **Source:** Majico staging project `27834995-58fb-4c5c-98fc-76936193f679` (Sage + Everyman, niche: standout).  
 **North-star pitch:** Solving scattered rewards. Track all your crypto rewards in one place.
 
+**Color (applied):** Electric cyan accent `#00efff` on dusk ink — not forest-green marketing copy that sometimes appears in Majico guideline prose. Product chrome stays Ledger-at-dusk. Logo not selected in Majico yet (`get_logo_svg` → null).
+
 ## Essence
 
 YieldScope is the **dedicated earnings checkpoint** — calm, precise, proof-oriented. Not a casino APY shop. Not a tax suite. A place where “what did I earn?” has one trustworthy answer.
