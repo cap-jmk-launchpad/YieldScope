@@ -31,14 +31,16 @@ No Zerion sprawl. No tax engine. No APY farm browser.
 
 ## Sync window
 
-Dashboard sync supports **All time** (full available CEX history) or a **custom from/to date range**.
+Dashboard sync supports **All time** (full available CEX history) or a **custom from/to date range** (`YYYY-MM-DD`, UTC day bounds).
 
-| Source | Range behavior |
-|--------|----------------|
-| Binance / OKX | History filtered to the selected window (Binance walks ≤30-day API chunks) |
-| Monad / LUNC | Point-in-time pending rewards — always refreshed; date range does not apply |
+| Source | Sync / persist | Display |
+|--------|----------------|---------|
+| Binance / OKX | History fetched for the selected window. Custom → merge-replace inside the window (rows outside are kept). All-time first run or “Re-download full history” → full replace. Later All-time → incremental upsert from high-water. | Full persisted ledger (picker is **not** a view filter) |
+| Monad / LUNC | Point-in-time pending rewards — **date range ignored**; always full-replace snapshot | Current pending rows (`earnedAt` = sync time) |
 
 Last-used window preference is stored in the browser (`localStorage`).
+
+If exchange history in the ledger only spans a few days after a multi-year sync, use **Re-download full history** or sync a wider custom range (older truncating bugs capped loads at 500 rows).
 
 ## Fail closed
 

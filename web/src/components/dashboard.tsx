@@ -12,6 +12,12 @@ import {
 } from "@/lib/prices/missing-symbols";
 import type { SyncRange, SyncRangeMode } from "@/lib/sync-range";
 import {
+  buildSyncRangeFromUi,
+  cexCoverageRefreshHint,
+  ledgerEventsForDisplay,
+  resolveSyncRange,
+} from "@/lib/sync-range";
+import {
   clearSyncSession,
   formatSyncingOverview,
   isSyncSessionFresh,
@@ -77,13 +83,18 @@ const SOURCE_LABEL: Record<SourceId, string> = {
 
 const SYNC_RANGE_KEY = "yieldscope.syncRange";
 
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Calendar month-to-date in the user's local timezone (matches `<input type="date">`). */
 function defaultMonthBounds(): { from: string; to: string } {
   const now = new Date();
-  const to = now.toISOString().slice(0, 10);
-  const fromDate = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-  );
-  const from = fromDate.toISOString().slice(0, 10);
+  const to = formatLocalYmd(now);
+  const from = formatLocalYmd(new Date(now.getFullYear(), now.getMonth(), 1));
   return { from, to };
 }
 
@@ -305,11 +316,8 @@ export function Dashboard({
 
     const range: SyncRange =
       rangeMode === "all"
-        ? {
-            mode: "all",
-            ...(forceFullRefresh ? { forceFull: true } : {}),
-          }
-        : { mode: "custom", from: fromDate, to: toDate };
+        ? buildSyncRangeFromUi("all", fromDate, toDate, forceFullRefresh)
+        : buildSyncRangeFromUi("custom", fromDate, toDate);
 
     if (range.mode === "custom" && (!range.from || !range.to)) {
       setMessage("Pick both from and to dates, or choose All time.");
@@ -373,14 +381,16 @@ export function Dashboard({
           ? forceFullRefresh
             ? "all time · full history"
             : "all time"
-          : `${range.from} → ${range.to}`;
+          : `${range.from} → ${range.to} (CEX)`;
 
       if (sourceErrors.length > 0) {
         setMessage(
-          `Sync finished with errors (${modeLabel}). ${sourceErrors.join(" · ")}`,
+          `Sync finished with errors (${modeLabel}). LUNC/Monad refresh pending only. ${sourceErrors.join(" · ")}`,
         );
       } else {
-        setMessage(`Sync finished (${modeLabel}).`);
+        setMessage(
+          `Sync finished (${modeLabel}). LUNC/Monad store current pending rewards only.`,
+        );
       }
       if (forceFullRefresh) setForceFullRefresh(false);
       void refreshRates();
@@ -426,7 +436,23 @@ export function Dashboard({
   const syncOverview = formatSyncingOverview(syncingSources);
 
   const byAssetRows = ledger?.aggregates?.byAsset ?? [];
-  const eventRows = ledger?.events ?? [];
+  // Display = full DB ledger (sync range is not a client-side view filter).
+  const eventRows = ledgerEventsForDisplay(ledger?.events ?? []);
+
+  const coverageHint = useMemo(
+    () => cexCoverageRefreshHint(eventRows),
+    [eventRows],
+  );
+
+  const selectedWindowLabel = useMemo(() => {
+    if (rangeMode !== "custom" || !fromDate || !toDate) return null;
+    try {
+      resolveSyncRange({ mode: "custom", from: fromDate, to: toDate });
+      return `${fromDate} → ${toDate}`;
+    } catch {
+      return null;
+    }
+  }, [rangeMode, fromDate, toDate]);
 
   const assetsSlice = useMemo(
     () => paginateItems(byAssetRows, assetsPage, pageSize),
@@ -572,14 +598,20 @@ export function Dashboard({
           </label>
         ) : null}
         <p className="sync-range-hint">
-          Date range applies to Binance and OKX exchange history. Monad stake and
-          LUNC wallet only refresh current pending rewards (not a multi-year
-          history). After the first sync, All time only picks up new exchange
-          rewards unless you re-download full history.
+          Sync window applies to Binance and OKX history (UTC day bounds). The
+          tables below show your full stored ledger after sync — not a filtered
+          preview of the picker. Monad stake and LUNC wallet only refresh
+          current pending rewards (not multi-year history). After the first
+          sync, All time only picks up new exchange rewards unless you
+          re-download full history.
+          {selectedWindowLabel
+            ? ` Selected CEX window: ${selectedWindowLabel}.`
+            : ""}
         </p>
       </fieldset>
 
       <p className="total">{totalLabel}</p>
+      {coverageHint ? <p className="msg">{coverageHint}</p> : null}
       {ratesNote ? <p className="msg">{ratesNote}</p> : null}
       {ledger?.wallet ? (
         <p className="msg mono">Wallet {ledger.wallet.address}</p>
@@ -652,7 +684,7 @@ export function Dashboard({
       </div>
 
       <EarningsCharts
-        events={ledger?.events ?? []}
+        events={eventRows}
         convertAmount={convertAmount}
         displayCurrency={chartDisplayCurrency}
       />

@@ -20,6 +20,7 @@ import {
   type ResolvedSyncWindow,
   type SyncRange,
   filterEventsByWindow,
+  isPointInTimeSource,
   resolveSyncRange,
 } from "./sync-range";
 import { join } from "node:path";
@@ -184,7 +185,7 @@ async function commitSource(
   plan?: Pick<CexPersistPlan, "persistMode" | "mergeFromMs" | "mergeToMs">,
 ): Promise<AdapterResult> {
   // Point-in-time sources always full-replace (no historical range).
-  const isPointInTime = source === "monad_stake" || source === "lunc_stake";
+  const isPointInTime = isPointInTimeSource(source);
   const persistMode = isPointInTime
     ? "replace"
     : (plan?.persistMode ?? "replace");
@@ -200,6 +201,8 @@ async function commitSource(
         : {};
 
   replaceSourceEvents(source, result, storeMerge);
+
+  const window = ctx.window ?? { mode: "all" as const, fromMs: null, toMs: null };
 
   try {
     await persistSourceSync({
@@ -219,6 +222,14 @@ async function commitSource(
             mergeToMs: plan?.mergeToMs,
           }
         : {}),
+      syncMeta: {
+        rangeMode: window.mode,
+        rangeFromMs: window.fromMs,
+        rangeToMs: window.toMs,
+        forceFull: Boolean(ctx.forceFull),
+        pointInTime: isPointInTime,
+        rangeIgnored: isPointInTime,
+      },
     });
   } catch {
     replaceSourceEvents(source, {

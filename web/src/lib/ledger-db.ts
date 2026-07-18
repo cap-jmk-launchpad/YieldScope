@@ -29,6 +29,8 @@ export interface PersistSourceInput {
   mergeToMs?: number | null;
   /** Explicit persist strategy; defaults from merge bounds when omitted. */
   persistMode?: PersistMode;
+  /** Recorded on sync_runs.meta for audit (range / plan). */
+  syncMeta?: Record<string, unknown>;
 }
 
 export interface LedgerAggregates {
@@ -169,7 +171,12 @@ export async function persistSourceSync(
     error: input.error ?? null,
     started_at: asOf,
     finished_at: asOf,
-    meta: {},
+    meta: {
+      persistMode,
+      ...(input.mergeFromMs != null ? { mergeFromMs: input.mergeFromMs } : {}),
+      ...(input.mergeToMs != null ? { mergeToMs: input.mergeToMs } : {}),
+      ...(input.syncMeta ?? {}),
+    },
   });
   if (runErr) {
     throw new LedgerPersistError(`Failed recording sync_run: ${runErr.message}`);

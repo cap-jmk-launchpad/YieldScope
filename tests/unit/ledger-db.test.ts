@@ -921,4 +921,112 @@ describe("ledger-db persistence", () => {
     expect(snap.sources.okx.error).toBe("bad");
     expect(snap.events[0].rawType).toBeUndefined();
   });
+
+  it("loadDbLedger pages beyond 500 events (no hard cap)", async () => {
+    const pageCalls: Array<[number, number]> = [];
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async (fromIdx: number, toIdx: number) => {
+                  pageCalls.push([fromIdx, toIdx]);
+                  if (fromIdx === 0) {
+                    return {
+                      data: Array.from({ length: 1000 }, (_, i) => ({
+                        id: `binance:${i}`,
+                        source: "binance",
+                        asset: "USDT",
+                        amount: "1",
+                        earned_at: "2024-07-01T00:00:00.000Z",
+                        raw_type: null,
+                        meta: {},
+                      })),
+                      error: null,
+                    };
+                  }
+                  if (fromIdx === 1000) {
+                    return {
+                      data: Array.from({ length: 50 }, (_, i) => ({
+                        id: `binance:${1000 + i}`,
+                        source: "binance",
+                        asset: "USDT",
+                        amount: "1",
+                        earned_at: "2024-06-01T00:00:00.000Z",
+                        raw_type: null,
+                        meta: {},
+                      })),
+                      error: null,
+                    };
+                  }
+                  return { data: [], error: null };
+                },
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  event_count: 1050,
+                  total_amount: 1050,
+                  last_earned_at: "2024-07-01T00:00:00.000Z",
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
+    const snap = await loadDbLedger("u1");
+    expect(snap.events).toHaveLength(1050);
+    expect(pageCalls[0]).toEqual([0, 999]);
+    expect(pageCalls[1]).toEqual([1000, 1999]);
+    expect(snap.sources.binance.eventCount).toBe(1050);
+  });
 });

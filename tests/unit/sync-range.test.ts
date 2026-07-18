@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   BINANCE_MAX_WINDOW_MS,
   SyncRangeError,
+  buildSyncRangeFromUi,
+  cexCoverageRefreshHint,
+  cexEventsMatchWindow,
   chunkTimeRange,
   eventInWindow,
   filterEventsByWindow,
+  isPointInTimeSource,
+  ledgerEventsForDisplay,
   parseSyncRangeBody,
   resolveSyncRange,
 } from "../../web/src/lib/sync-range";
@@ -158,5 +163,45 @@ describe("sync-range", () => {
         toMs: null,
       }),
     ).toBe(true);
+  });
+
+  it("buildSyncRangeFromUi and point-in-time helpers", () => {
+    expect(buildSyncRangeFromUi("all", "a", "b")).toEqual({ mode: "all" });
+    expect(buildSyncRangeFromUi("all", "a", "b", true)).toEqual({
+      mode: "all",
+      forceFull: true,
+    });
+    expect(buildSyncRangeFromUi("custom", "2024-01-01", "2024-01-02")).toEqual({
+      mode: "custom",
+      from: "2024-01-01",
+      to: "2024-01-02",
+    });
+    expect(isPointInTimeSource("lunc_stake")).toBe(true);
+    expect(isPointInTimeSource("binance")).toBe(false);
+    expect(ledgerEventsForDisplay([{ id: 1 }, { id: 2 }])).toEqual([
+      { id: 1 },
+      { id: 2 },
+    ]);
+    const window = resolveSyncRange({
+      mode: "custom",
+      from: "2024-07-01",
+      to: "2024-07-01",
+    });
+    expect(
+      cexEventsMatchWindow(
+        [
+          { source: "binance", earnedAt: "2024-07-01T12:00:00.000Z" },
+          { source: "lunc_stake", earnedAt: "2025-01-01T00:00:00.000Z" },
+        ],
+        window,
+      ),
+    ).toBe(true);
+    expect(
+      cexEventsMatchWindow(
+        [{ source: "okx", earnedAt: "2024-06-01T00:00:00.000Z" }],
+        window,
+      ),
+    ).toBe(false);
+    expect(cexCoverageRefreshHint([])).toBeNull();
   });
 });
