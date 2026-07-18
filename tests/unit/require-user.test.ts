@@ -20,7 +20,7 @@ describe("requireUser", () => {
     expect(result.error).toBeDefined();
     expect(result.error!.status).toBe(401);
     const body = await result.error!.json();
-    expect(body.error).toMatch(/Auth not configured/i);
+    expect(body.error).toMatch(/Sign-in isn’t available/i);
   });
 
   it("returns user when session is valid", async () => {

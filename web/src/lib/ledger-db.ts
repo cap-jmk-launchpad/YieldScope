@@ -1,4 +1,9 @@
-import type { EarnEvent, SourceId, SourceStatus } from "@/lib/adapters/types";
+import type {
+  EarnEvent,
+  PersistMode,
+  SourceId,
+  SourceStatus,
+} from "@/lib/adapters/types";
 import { createAdminClient, isAdminConfigured } from "@/lib/supabase/admin";
 
 export class LedgerPersistError extends Error {
@@ -22,6 +27,8 @@ export interface PersistSourceInput {
    */
   mergeFromMs?: number | null;
   mergeToMs?: number | null;
+  /** Explicit persist strategy; defaults from merge bounds when omitted. */
+  persistMode?: PersistMode;
 }
 
 export interface LedgerAggregates {
@@ -92,25 +99,31 @@ export async function persistSourceSync(
   const profileId = await ensureProfileId(input.userId, input.email);
   const admin = createAdminClient();
 
-  const merge =
+  const mergeBounds =
     input.mergeFromMs != null &&
     input.mergeToMs != null &&
     Number.isFinite(input.mergeFromMs) &&
     Number.isFinite(input.mergeToMs);
 
-  let delQuery = admin
-    .from("earn_events")
-    .delete()
-    .eq("profile_id", profileId)
-    .eq("source", input.source);
-  if (merge) {
-    delQuery = delQuery
-      .gte("earned_at", new Date(input.mergeFromMs!).toISOString())
-      .lte("earned_at", new Date(input.mergeToMs!).toISOString());
-  }
-  const { error: delErr } = await delQuery;
-  if (delErr) {
-    throw new LedgerPersistError(`Failed clearing prior events: ${delErr.message}`);
+  const persistMode =
+    input.persistMode ??
+    (mergeBounds ? "merge" : "replace");
+
+  if (persistMode !== "upsert") {
+    let delQuery = admin
+      .from("earn_events")
+      .delete()
+      .eq("profile_id", profileId)
+      .eq("source", input.source);
+    if (persistMode === "merge" && mergeBounds) {
+      delQuery = delQuery
+        .gte("earned_at", new Date(input.mergeFromMs!).toISOString())
+        .lte("earned_at", new Date(input.mergeToMs!).toISOString());
+    }
+    const { error: delErr } = await delQuery;
+    if (delErr) {
+      throw new LedgerPersistError(`Failed clearing prior events: ${delErr.message}`);
+    }
   }
 
   if (input.events.length > 0) {
@@ -189,6 +202,45 @@ export async function persistSourceSync(
   }
 
   return { profileId, eventCount: input.events.length };
+}
+
+/**
+ * Max earned_at (ms) for a user's source — high-water mark for incremental sync.
+ * Returns null when no events exist (first backfill needed).
+ */
+export async function getSourceHighWaterMs(
+  userId: string,
+  source: SourceId,
+): Promise<number | null> {
+  if (!isAdminConfigured()) return null;
+
+  const admin = createAdminClient();
+  const { data: profile, error: pErr } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (pErr) {
+    throw new LedgerPersistError(`Profile lookup failed: ${pErr.message}`);
+  }
+  if (!profile?.id) return null;
+
+  const { data, error } = await admin
+    .from("earn_events")
+    .select("earned_at")
+    .eq("profile_id", profile.id)
+    .eq("source", source)
+    .order("earned_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    throw new LedgerPersistError(
+      `Failed reading high-water mark: ${error.message}`,
+    );
+  }
+  if (!data?.earned_at) return null;
+  const ms = Date.parse(String(data.earned_at));
+  return Number.isFinite(ms) ? ms : null;
 }
 
 export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
@@ -310,4 +362,32 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
     wallet,
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Distinct asset tickers across all earn_events (service role).
+ * Used by price sync to warm USDT pairs for imported cryptos.
+ */
+export async function listDistinctEarnAssets(): Promise<string[]> {
+  if (!isAdminConfigured()) {
+    throw new LedgerPersistError("Database not configured.");
+  }
+  const admin = createAdminClient();
+  // Aggregates view is already grouped by asset — cheaper than raw events.
+  const { data, error } = await admin
+    .from("earn_aggregates_by_asset")
+    .select("asset");
+  if (error) {
+    throw new LedgerPersistError(
+      `Failed listing earn assets: ${error.message}`,
+    );
+  }
+  const set = new Set<string>();
+  for (const row of data ?? []) {
+    const a = String(row.asset ?? "")
+      .trim()
+      .toUpperCase();
+    if (a) set.add(a);
+  }
+  return [...set].sort();
 }

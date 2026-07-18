@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const persistSourceSync = vi.fn();
+const getSourceHighWaterMs = vi.fn();
 
 vi.mock("../../web/src/lib/ledger-db", () => {
   class LedgerPersistError extends Error {
@@ -12,6 +13,7 @@ vi.mock("../../web/src/lib/ledger-db", () => {
   return {
     LedgerPersistError,
     persistSourceSync: (...args: unknown[]) => persistSourceSync(...args),
+    getSourceHighWaterMs: (...args: unknown[]) => getSourceHighWaterMs(...args),
     loadDbLedger: vi.fn(),
   };
 });
@@ -27,6 +29,7 @@ describe("sync with persistence", () => {
     process.env = { ...original };
     process.env.USE_FIXTURE_DEMO = "1";
     persistSourceSync.mockResolvedValue({ profileId: "p1", eventCount: 1 });
+    getSourceHighWaterMs.mockResolvedValue(null);
     const { resetLedger } = await import("../../web/src/lib/ledger-store");
     resetLedger();
   });
@@ -110,7 +113,7 @@ describe("sync with persistence", () => {
     const { syncBinance } = await import("../../web/src/lib/sync");
     const result = await syncBinance(dummyCex, { userId: "u1" });
     expect(result.status).toBe("error");
-    expect(result.error).toMatch(/Persist failed/i);
+    expect(result.error).toMatch(/Couldn’t save this source/i);
   });
 
   it("not_connected without creds outside fixture mode", async () => {
@@ -166,8 +169,9 @@ describe("sync with persistence", () => {
     vi.unstubAllGlobals();
   });
 
-  it("syncBinance all-time passes allTime to adapter", async () => {
+  it("syncBinance all-time first run passes allTime to adapter", async () => {
     process.env.USE_FIXTURE_DEMO = "0";
+    getSourceHighWaterMs.mockResolvedValue(null);
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ rows: [], total: 0 }),
@@ -180,7 +184,93 @@ describe("sync with persistence", () => {
       { userId: "u1", window: resolveSyncRange({ mode: "all" }) },
     );
     expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("type=ALL");
     vi.unstubAllGlobals();
+  });
+
+  it("syncBinance incremental uses high-water and upserts", async () => {
+    process.env.USE_FIXTURE_DEMO = "0";
+    const highWater = Date.parse("2024-07-01T00:00:00.000Z");
+    getSourceHighWaterMs.mockResolvedValue(highWater);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        rows: [
+          {
+            asset: "USDT",
+            rewards: "1",
+            time: highWater + 60_000,
+            projectId: "p1",
+          },
+        ],
+        total: 1,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { syncBinance } = await import("../../web/src/lib/sync");
+    const { resolveSyncRange, INCREMENTAL_OVERLAP_MS } = await import(
+      "../../web/src/lib/sync-range"
+    );
+    await syncBinance(
+      { apiKey: "k", apiSecret: "s" },
+      { userId: "u1", window: resolveSyncRange({ mode: "all" }) },
+    );
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain(`startTime=${highWater - INCREMENTAL_OVERLAP_MS}`);
+    expect(url).toContain("type=ALL");
+    expect(persistSourceSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "binance",
+        persistMode: "upsert",
+      }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("syncBinance forceFull ignores high-water and replaces", async () => {
+    process.env.USE_FIXTURE_DEMO = "0";
+    getSourceHighWaterMs.mockResolvedValue(Date.parse("2024-07-01T00:00:00.000Z"));
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ rows: [], total: 0 }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { syncBinance } = await import("../../web/src/lib/sync");
+    await syncBinance(
+      { apiKey: "k", apiSecret: "s" },
+      {
+        userId: "u1",
+        window: { mode: "all", fromMs: null, toMs: null },
+        forceFull: true,
+      },
+    );
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(persistSourceSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "binance",
+        persistMode: "replace",
+      }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("re-sync does not duplicate in-memory ledger events", async () => {
+    const { syncBinance, snapshot } = await import("../../web/src/lib/sync");
+    const { resetLedger } = await import("../../web/src/lib/ledger-store");
+    resetLedger();
+    getSourceHighWaterMs.mockResolvedValue(null);
+    await syncBinance(dummyCex, { userId: "u1" });
+    const firstCount = snapshot().events.filter((e) => e.source === "binance")
+      .length;
+    getSourceHighWaterMs.mockResolvedValue(
+      Date.parse(snapshot().events[0].earnedAt),
+    );
+    await syncBinance(dummyCex, { userId: "u1" });
+    const second = snapshot().events.filter((e) => e.source === "binance");
+    const ids = second.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(second.length).toBe(firstCount);
   });
 
   it("syncBinance custom range filters fixture events", async () => {
@@ -201,15 +291,17 @@ describe("sync with persistence", () => {
     expect(persistSourceSync).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "binance",
+        persistMode: "merge",
         mergeFromMs: expect.any(Number),
         mergeToMs: expect.any(Number),
       }),
     );
   });
 
-  it("syncBinance all-time does not set merge bounds", async () => {
+  it("syncBinance all-time first run uses replace persist", async () => {
     const { syncBinance } = await import("../../web/src/lib/sync");
     const { resolveSyncRange } = await import("../../web/src/lib/sync-range");
+    getSourceHighWaterMs.mockResolvedValue(null);
     await syncBinance(dummyCex, {
       userId: "u1",
       window: resolveSyncRange({ mode: "all" }),
@@ -219,6 +311,7 @@ describe("sync with persistence", () => {
       unknown
     >;
     expect(arg.source).toBe("binance");
+    expect(arg.persistMode).toBe("replace");
     expect(arg).not.toHaveProperty("mergeFromMs");
     expect(arg).not.toHaveProperty("mergeToMs");
   });

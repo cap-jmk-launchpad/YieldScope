@@ -23,7 +23,7 @@ export function ForgotPasswordForm() {
 
     if (!configured) {
       setError(
-        "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+        "Password reset isn’t available right now. Try again later.",
       );
       return;
     }

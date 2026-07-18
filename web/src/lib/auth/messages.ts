@@ -22,7 +22,7 @@ export function authCallbackErrorMessage(code: string | null): string | null {
     return "Sign-in link expired or invalid. Request a new confirmation or reset email and try again.";
   }
   if (code === "auth_unconfigured") {
-    return "Auth backend is not configured on this deployment.";
+    return "Sign-in isn’t available right now. Try again later.";
   }
   return null;
 }

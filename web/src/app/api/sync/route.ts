@@ -84,23 +84,23 @@ export async function POST(req: Request) {
         typeof r === "object" &&
         "status" in r &&
         (r as { status: string }).status === "error" &&
-        String((r as { error?: string }).error ?? "").startsWith(
-          "Persist failed",
+        String((r as { error?: string }).error ?? "").includes(
+          "Couldn’t save this source",
         ),
     );
     if (failed) {
       return NextResponse.json(
-        { error: "Sync persist failed — no silent success.", results, ledger },
+        { error: "Sync couldn’t be saved. Try again.", results, ledger },
         { status: 502 },
       );
     }
     return NextResponse.json({ results, ledger });
   } catch (err) {
     const message =
-      err instanceof LedgerPersistError
+      err instanceof SyncRangeError
         ? err.message
-        : err instanceof SyncRangeError
-          ? err.message
+        : err instanceof LedgerPersistError
+          ? "Sync couldn’t be saved. Try again."
           : err instanceof Error
             ? err.message
             : "Sync failed";

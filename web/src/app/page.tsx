@@ -42,15 +42,14 @@ export default function HomePage() {
       <section className="landing-section" id="how">
         <h2>How it works</h2>
         <p>
-          Sign in, paste read-only exchange keys, connect a Monad wallet, sync
-          real reward history, then post a Merkle root to{" "}
-          <code>EarningsCheckpoint</code> on Monad testnet. Broken sources show
-          error — never placeholder rows.
+          Sign in, connect your exchanges and wallet, sync reward history into
+          one ledger, then optionally attest a checkpoint on Monad so the total
+          is explorer-verifiable.
         </p>
       </section>
 
       <section className="landing-section" id="sources">
-        <h2>Phase 1 sources</h2>
+        <h2>Sources</h2>
         <ul className="landing-sources">
           <li>
             <span>Binance</span> Simple Earn rewards
@@ -59,28 +58,27 @@ export default function HomePage() {
             <span>OKX</span> Savings / earn history
           </li>
           <li>
-            <span>Monad</span> Staking via precompile 0x1000
+            <span>Monad</span> Staking rewards
           </li>
           <li>
             <span>LUNC</span> Terra Classic pending stake rewards
           </li>
         </ul>
         <p className="landing-note">
-          More chains (ETH, Lido, Base, …) are Phase 2 — not claimed here.
+          More chains (ETH, Lido, Base, …) coming later.
         </p>
       </section>
 
       <section className="landing-section" id="checkpoint">
         <h2>Onchain checkpoint</h2>
         <p>
-          After a sync window, attest the ledger root so explorers can verify
-          the commitment — proof, not screenshots.
+          After you sync, attest your earnings total on Monad so explorers can
+          verify it — proof, not screenshots.
         </p>
       </section>
 
       <footer className="landing-foot">
         <span>yieldscope.d3bu7.com</span>
-        <span>Built test-first for Spark</span>
       </footer>
     </main>
   );

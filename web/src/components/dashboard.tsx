@@ -4,9 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { CurrencyCell, CurrencyLogo } from "@/components/asset-icon";
 import { EarningsCharts } from "@/components/earnings-charts";
+import { TablePager } from "@/components/table-pager";
 import type { EarnEvent, SourceId, SourceStatus } from "@/lib/adapters/types";
 import type { ConvertAmount } from "@/lib/earnings-charts";
+import {
+  auditPriceCoverage,
+} from "@/lib/prices/missing-symbols";
 import type { SyncRange, SyncRangeMode } from "@/lib/sync-range";
+import {
+  DEFAULT_ASSETS_PAGE_SIZE,
+  DEFAULT_EVENTS_PAGE_SIZE,
+  paginateItems,
+} from "@/lib/table-pagination";
 import {
   DISPLAY_CURRENCIES,
   type DisplayCurrency,
@@ -49,6 +58,12 @@ const SOURCE_LABEL: Record<SourceId, string> = {
   okx: "OKX",
   monad_stake: "Monad stake",
   lunc_stake: "LUNC stake",
+};
+
+const STATUS_LABEL: Record<SourceStatus, string> = {
+  ok: "Connected",
+  error: "Error",
+  not_connected: "Not connected",
 };
 
 const SYNC_RANGE_KEY = "yieldscope.syncRange";
@@ -113,11 +128,15 @@ export function Dashboard({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [rangeMode, setRangeMode] = useState<SyncRangeMode>("all");
+  const [forceFullRefresh, setForceFullRefresh] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [currency, setCurrency] = useState<DisplayCurrency>("USD");
   const [rates, setRates] = useState<RateMap>({});
   const [ratesNote, setRatesNote] = useState<string | null>(null);
+  const [missingAssets, setMissingAssets] = useState<string[]>([]);
+  const [eventsPage, setEventsPage] = useState(1);
+  const [assetsPage, setAssetsPage] = useState(1);
   const { address, chainId } = useAccount();
 
   useEffect(() => {
@@ -152,19 +171,23 @@ export function Dashboard({
         rates?: RateMap;
         error?: string;
         note?: string;
+        missingAssets?: string[];
       };
       if (!res.ok) {
         setRatesNote(json.error ?? "Price rates unavailable");
         return;
       }
       setRates(json.rates ?? {});
+      setMissingAssets(
+        Array.isArray(json.missingAssets) ? json.missingAssets : [],
+      );
       setRatesNote(
         Object.keys(json.rates ?? {}).length === 0
-          ? "No price ticks yet — minute sync may still be warming up"
+          ? "Prices aren’t ready yet — amounts may show in native units for a moment."
           : null,
       );
     } catch (err) {
-      setRatesNote(err instanceof Error ? err.message : "Price fetch failed");
+      setRatesNote(err instanceof Error ? err.message : "Couldn’t load prices");
     }
   }, []);
 
@@ -172,6 +195,8 @@ export function Dashboard({
     const res = await fetch("/api/ledger");
     const json = (await res.json()) as LedgerResponse;
     setLedger(json);
+    setEventsPage(1);
+    setAssetsPage(1);
     if (!res.ok) {
       setMessage(json.error ?? "Failed to load ledger");
     }
@@ -188,7 +213,10 @@ export function Dashboard({
     try {
       const range: SyncRange =
         rangeMode === "all"
-          ? { mode: "all" }
+          ? {
+              mode: "all",
+              ...(forceFullRefresh ? { forceFull: true } : {}),
+            }
           : { mode: "custom", from: fromDate, to: toDate };
 
       if (range.mode === "custom" && (!range.from || !range.to)) {
@@ -201,6 +229,9 @@ export function Dashboard({
         source,
         chainId: chainId ?? 10143,
         range,
+        ...(range.mode === "all" && forceFullRefresh
+          ? { forceFull: true }
+          : {}),
       };
       if (address) body.address = address;
       const res = await fetch("/api/sync", {
@@ -210,16 +241,40 @@ export function Dashboard({
       });
       const json = await res.json();
       if (json.ledger) setLedger(json.ledger);
+      const results = json.results as
+        | Record<string, { status?: string; error?: string }>
+        | undefined;
+      const sourceErrors: string[] = [];
+      if (results) {
+        for (const [src, r] of Object.entries(results)) {
+          if (r?.status === "error" && r.error) {
+            const label =
+              SOURCE_LABEL[src as SourceId] ?? src.replace(/_/g, " ");
+            sourceErrors.push(`${label}: ${r.error}`);
+          }
+        }
+      }
+      const modeLabel =
+        range.mode === "all"
+          ? forceFullRefresh
+            ? "all time · full history"
+            : "all time"
+          : `${range.from} → ${range.to}`;
       if (!res.ok) {
-        setMessage(json.error ?? "Sync failed — persist may have failed closed.");
-      } else {
-        const modeLabel =
-          range.mode === "all"
-            ? "all time"
-            : `${range.from} → ${range.to}`;
+        const parts: string[] = [
+          json.error ?? "Sync failed. Nothing was saved — try again.",
+          ...sourceErrors,
+        ];
+        setMessage(parts.join(" · "));
+      } else if (sourceErrors.length > 0) {
         setMessage(
-          `Sync finished (${modeLabel}) — Binance/OKX history in range; Monad/LUNC current pending.`,
+          `Sync finished with errors (${modeLabel}). ${sourceErrors.join(" · ")}`,
         );
+        if (forceFullRefresh) setForceFullRefresh(false);
+        void refreshRates();
+      } else {
+        setMessage(`Sync finished (${modeLabel}).`);
+        if (forceFullRefresh) setForceFullRefresh(false);
         void refreshRates();
       }
     } catch (err) {
@@ -256,6 +311,35 @@ export function Dashboard({
     Boolean(convertAmountProp),
   );
   const customDisabled = rangeMode !== "custom";
+
+  const byAssetRows = ledger?.aggregates?.byAsset ?? [];
+  const eventRows = ledger?.events ?? [];
+
+  const assetsSlice = useMemo(
+    () => paginateItems(byAssetRows, assetsPage, DEFAULT_ASSETS_PAGE_SIZE),
+    [byAssetRows, assetsPage],
+  );
+  const eventsSlice = useMemo(
+    () => paginateItems(eventRows, eventsPage, DEFAULT_EVENTS_PAGE_SIZE),
+    [eventRows, eventsPage],
+  );
+
+  // Keep page in range when filters / sync shrink the list.
+  useEffect(() => {
+    if (assetsPage !== assetsSlice.page) setAssetsPage(assetsSlice.page);
+  }, [assetsPage, assetsSlice.page]);
+  useEffect(() => {
+    if (eventsPage !== eventsSlice.page) setEventsPage(eventsSlice.page);
+  }, [eventsPage, eventsSlice.page]);
+
+  const coverageGaps = useMemo(() => {
+    if (missingAssets.length > 0) return missingAssets;
+    if (byAssetRows.length === 0 || Object.keys(rates).length === 0) return [];
+    return auditPriceCoverage(
+      byAssetRows.map((a) => a.asset),
+      Object.keys(rates),
+    ).missing;
+  }, [missingAssets, byAssetRows, rates]);
 
   return (
     <div className="dash">
@@ -348,19 +432,28 @@ export function Dashboard({
             />
           </label>
         </div>
+        {rangeMode === "all" ? (
+          <label className="sync-range-option sync-range-force">
+            <input
+              type="checkbox"
+              checked={forceFullRefresh}
+              onChange={(e) => setForceFullRefresh(e.target.checked)}
+              disabled={busy}
+            />
+            <span>Re-download full history</span>
+          </label>
+        ) : null}
         <p className="sync-range-hint">
-          Range filters Binance / OKX earn history. Monad and LUNC always refresh
-          current pending rewards. Totals convert via Binance prices stored in
-          Postgres (1m ticks).
+          Date range applies to Binance and OKX. After the first sync, All time
+          only picks up new rewards unless you re-download full history. Monad
+          and LUNC always show current pending rewards.
         </p>
       </fieldset>
 
       <p className="total">{totalLabel}</p>
       {ratesNote ? <p className="msg">{ratesNote}</p> : null}
       {ledger?.wallet ? (
-        <p className="msg mono">
-          Wallet {ledger.wallet.address} · chain {ledger.wallet.chainId}
-        </p>
+        <p className="msg mono">Wallet {ledger.wallet.address}</p>
       ) : null}
       {message ? <p className="msg">{message}</p> : null}
 
@@ -385,7 +478,9 @@ export function Dashboard({
           return (
             <div key={id} className={`source status-${s?.status ?? "not_connected"}`}>
               <span className="source-name">{SOURCE_LABEL[id]}</span>
-              <span className="source-status">{s?.status ?? "not_connected"}</span>
+              <span className="source-status">
+                {STATUS_LABEL[s?.status ?? "not_connected"]}
+              </span>
               <span className="source-count">
                 {agg?.eventCount ?? s?.eventCount ?? 0} events
                 {sumLabel ? ` · ${sumLabel}` : ""}
@@ -456,8 +551,8 @@ export function Dashboard({
             {(ledger?.events ?? []).length === 0 ? (
               <tr>
                 <td colSpan={5} className="empty">
-                  No earn rows yet. Connect Binance / OKX or a Monad wallet, then sync.
-                  Broken sources show error — we never invent placeholder earnings.
+                  No earnings yet. Connect Binance, OKX, or a Monad wallet, then
+                  sync.
                 </td>
               </tr>
             ) : (
@@ -506,7 +601,7 @@ function summarizeFromAggregates(
     if (byAsset.length > 0) {
       const parts = byAsset
         .slice(0, 4)
-        .map((a) => `${Number(a.totalAmount).toPrecision(4)} ${a.asset}`);
+        .map((a) => `${a.totalAmount} ${a.asset}`);
       return `${n} events · ${parts.join(" · ")}`;
     }
     return `${n} events`;
@@ -522,7 +617,7 @@ function summarizeFromAggregates(
   if (byAsset.length > 0) {
     const parts = byAsset
       .slice(0, 4)
-      .map((a) => `${Number(a.totalAmount).toPrecision(4)} ${a.asset}`);
+      .map((a) => `${a.totalAmount} ${a.asset}`);
     return `${n} events · ${parts.join(" · ")}`;
   }
   return `${n} events`;

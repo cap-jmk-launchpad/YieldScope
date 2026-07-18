@@ -14,7 +14,7 @@ export async function requireUser(): Promise<
   if (!url || !key) {
     return {
       error: NextResponse.json(
-        { error: "Auth not configured — sync/attest blocked." },
+        { error: "Sign-in isn’t available right now. Try again later." },
         { status: 401 },
       ),
     };
@@ -29,7 +29,7 @@ export async function requireUser(): Promise<
     if (error || !user) {
       return {
         error: NextResponse.json(
-          { error: "Unauthorized — sign in to sync or attest." },
+          { error: "Sign in to sync or attest." },
           { status: 401 },
         ),
       };
@@ -38,7 +38,7 @@ export async function requireUser(): Promise<
   } catch {
     return {
       error: NextResponse.json(
-        { error: "Unauthorized — sign in to sync or attest." },
+        { error: "Sign in to sync or attest." },
         { status: 401 },
       ),
     };

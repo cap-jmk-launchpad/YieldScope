@@ -11,7 +11,7 @@ export async function updateSession(request: NextRequest) {
     // Fail closed when auth is not configured
     if (isApiProtected(request.nextUrl.pathname)) {
       return NextResponse.json(
-        { error: "Auth not configured — sync/attest blocked." },
+        { error: "Sign-in isn’t available right now. Try again later." },
         { status: 401 },
       );
     }
@@ -48,7 +48,7 @@ export async function updateSession(request: NextRequest) {
 
   if (!user && isApiProtected(request.nextUrl.pathname)) {
     return NextResponse.json(
-      { error: "Unauthorized — sign in to sync or attest." },
+      { error: "Sign in to sync or attest." },
       { status: 401 },
     );
   }

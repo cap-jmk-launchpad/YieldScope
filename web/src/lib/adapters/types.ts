@@ -39,6 +39,9 @@ export interface EarnFetchOptions {
   allTime?: boolean;
 }
 
+/** How CEX sync persists into the ledger. */
+export type PersistMode = "replace" | "merge" | "upsert";
+
 export type FetchEarnEvents = (
   creds: CexCredentials,
   opts?: EarnFetchOptions,

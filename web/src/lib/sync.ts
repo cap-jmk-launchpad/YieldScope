@@ -27,6 +27,19 @@ function useFixtures(): boolean {
   return process.env.USE_FIXTURE_DEMO === "1";
 }
 
+/** Strip infra jargon from adapter failures before they reach the UI. */
+function userFacingAdapterError(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (
+    /LCD|RPC|eth_call|precompile|HTTP \d+|malformed|decode|STATICCALL|fail.?closed|persist|Postgres|Supabase|service.?role/i.test(
+      raw,
+    )
+  ) {
+    return fallback;
+  }
+  return raw || fallback;
+}
+
 /** Resolve fixtures whether vitest cwd is repo root or web/. */
 function fixturesRoot(): string {
   const cwd = process.cwd();
@@ -134,21 +147,15 @@ async function commitSource(
       ...storeMerge,
     });
   } catch (err) {
-    const message =
-      err instanceof LedgerPersistError
-        ? err.message
-        : err instanceof Error
-          ? err.message
-          : String(err);
     replaceSourceEvents(source, {
       status: "error",
       events: [],
-      error: `Persist failed: ${message}`,
+      error: "Couldn’t save this source. Try syncing again.",
     });
     return {
       status: "error",
       events: [],
-      error: `Persist failed: ${message}`,
+      error: "Couldn’t save this source. Try syncing again.",
     };
   }
   return result;
@@ -187,7 +194,10 @@ export async function syncBinance(
       ),
     });
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = userFacingAdapterError(
+      err,
+      "Couldn’t read Binance earn history. Check your API key and try again.",
+    );
     return commitSource(ctx, "binance", { status: "error", events: [], error });
   }
 }
@@ -223,7 +233,10 @@ export async function syncOkx(
       ),
     });
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = userFacingAdapterError(
+      err,
+      "Couldn’t read OKX earn history. Check your API key and try again.",
+    );
     return commitSource(ctx, "okx", { status: "error", events: [], error });
   }
 }
@@ -269,7 +282,10 @@ export async function syncMonadStake(
     );
     return commitSource(walletCtx, "monad_stake", { status: "ok", events });
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = userFacingAdapterError(
+      err,
+      "Couldn’t read Monad staking rewards. Check your wallet and try again.",
+    );
     return commitSource(walletCtx, "monad_stake", {
       status: "error",
       events: [],
@@ -302,7 +318,10 @@ export async function syncLuncStake(
     });
     return commitSource(ctx, "lunc_stake", { status: "ok", events });
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = userFacingAdapterError(
+      err,
+      "Couldn’t read LUNC staking rewards. Check the address and try again.",
+    );
     return commitSource(ctx, "lunc_stake", {
       status: "error",
       events: [],

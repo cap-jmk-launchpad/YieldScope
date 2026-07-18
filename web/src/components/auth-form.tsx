@@ -39,7 +39,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
 
     if (!configured) {
       setError(
-        "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+        "Sign-in isn’t available right now. Try again later.",
       );
       return;
     }

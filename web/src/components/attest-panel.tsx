@@ -48,9 +48,7 @@ export function AttestPanel() {
       !CHECKPOINT_ADDRESS ||
       CHECKPOINT_ADDRESS === "0x0000000000000000000000000000000000000000"
     ) {
-      setError(
-        "Set NEXT_PUBLIC_CHECKPOINT_ADDRESS after deploying EarningsCheckpoint.",
-      );
+      setError("Checkpoint isn’t available yet. Try again later.");
       return;
     }
     if (!isConnected || !address) {
@@ -70,12 +68,18 @@ export function AttestPanel() {
     });
   }
 
+  const windowLabel =
+    preview &&
+    `${new Date(preview.windowStart * 1000).toLocaleString()} → ${new Date(
+      preview.windowEnd * 1000,
+    ).toLocaleString()}`;
+
   return (
     <div className="attest-panel">
       <h2>Attest checkpoint</h2>
       <p className="lede">
-        Posts a Merkle root of the current earn ledger to{" "}
-        <code>EarningsCheckpoint</code> on Monad testnet (chain 10143).
+        Publish a fingerprint of your current earn ledger on Monad so others can
+        verify the total on an explorer.
       </p>
       {preview ? (
         <dl>
@@ -84,14 +88,12 @@ export function AttestPanel() {
             <dd className="mono">{preview.eventCount}</dd>
           </div>
           <div>
-            <dt>Root</dt>
+            <dt>Fingerprint</dt>
             <dd className="mono break">{preview.root}</dd>
           </div>
           <div>
             <dt>Window</dt>
-            <dd className="mono">
-              {preview.windowStart} → {preview.windowEnd}
-            </dd>
+            <dd className="mono">{windowLabel}</dd>
           </div>
         </dl>
       ) : (
@@ -104,7 +106,7 @@ export function AttestPanel() {
       ) : null}
       <div className="actions">
         <button type="button" className="btn-secondary" onClick={() => refresh()}>
-          Refresh root
+          Refresh preview
         </button>
         <button
           type="button"

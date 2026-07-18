@@ -254,8 +254,8 @@ export function ConnectPanel() {
           <SavedBadge status={status.monad_stake} label="Wallet" />
         </div>
         <p className="hint">
-          Connect MetaMask (or another injected wallet) on Monad testnet (chain
-          id 10143), then hit Save connection so we remember it for sync.
+          Connect MetaMask (or another wallet) on Monad testnet, then hit Save
+          connection so we remember it for sync.
         </p>
         <div className="wallet-connect">
           <ConnectButton
@@ -285,7 +285,7 @@ export function ConnectPanel() {
         </div>
         <p className="hint">
           Paste a <code>terra1…</code> address or a Finder / Mintscan wallet
-          link. We read pending staking rewards from the public LCD — no keys.
+          link. We read pending staking rewards publicly — no keys needed.
         </p>
         <label>
           Wallet address or link
