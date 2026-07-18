@@ -148,10 +148,19 @@ a {
 }
 
 .landing-top-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   font-family: var(--font-display);
   font-weight: 700;
   letter-spacing: -0.03em;
   font-size: 1rem;
+}
+
+.landing-mark-icon {
+  display: block;
+  color: var(--mint);
+  flex-shrink: 0;
 }
 
 .landing-top-nav {

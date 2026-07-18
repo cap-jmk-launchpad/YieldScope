@@ -52,3 +52,7 @@ Phase 1 does **not** try to beat Zerion at DeFi coverage or Koinly at taxes. We 
 ## Brand source
 
 Majico staging project `27834995-58fb-4c5c-98fc-76936193f679` — see [`brand.md`](../brand.md), [`design.md`](../design.md), [`docs/majico/`](majico/).
+
+### Pipeline note (2026-07-18 retry)
+
+Generation is **async**: trigger → poll `get_asset_status` → retrieve export/`get_cursor_handoff`. Verified working after poll: `submit_brief` / niche research, `run_blog_research`, `generate_asset` (landing-page), `generate_creative`, `download_export_zip`, `select_logo` (creates handoff). Still broken or stubbed after completion: `generate_blog_outline` returns `result.stub: true` (blocks approve/section/assemble/publish), `list_palette_options` / `sync_cursor_skills` / `get_ui_ux_skills` 500, `list_logo_candidates` needs `MAJICO_PREVIEW_TOKEN_SECRET`, `guideline-html` fails with missing pipeline adapter, creative hero is mock placeholder.

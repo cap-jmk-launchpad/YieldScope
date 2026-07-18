@@ -3,7 +3,9 @@
 **Source:** Majico staging project `27834995-58fb-4c5c-98fc-76936193f679` (Sage + Everyman, niche: standout).  
 **North-star pitch:** Solving scattered rewards. Track all your crypto rewards in one place.
 
-**Color (applied):** Electric cyan accent `#00efff` on dusk ink — not forest-green marketing copy that sometimes appears in Majico guideline prose. Product chrome stays Ledger-at-dusk. Logo not selected in Majico yet (`get_logo_svg` → null).
+**Color (applied):** Electric cyan accent `#00efff` on dusk ink — not forest-green marketing copy that sometimes appears in Majico guideline prose. Product chrome stays Ledger-at-dusk.
+
+**Logo (Majico):** `book-open` template selected via staging `select_logo` (handoff `f7884976-205e-4a8a-af51-259b74ab44f0`). SVG at [`web/public/yieldscope-mark.svg`](web/public/yieldscope-mark.svg). Wordmark remains the primary brand signal on the landing hero.
 
 ## Essence
 

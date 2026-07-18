@@ -7,7 +7,16 @@ export default function HomePage() {
       <div className="landing-scan" aria-hidden />
 
       <header className="landing-top">
-        <span className="landing-top-mark">YieldScope</span>
+        <span className="landing-top-mark">
+          <img
+            src="/yieldscope-mark.svg"
+            alt=""
+            width={22}
+            height={22}
+            className="landing-mark-icon"
+          />
+          YieldScope
+        </span>
         <nav className="landing-top-nav">
           <a href="#how">How</a>
           <a href="#sources">Sources</a>

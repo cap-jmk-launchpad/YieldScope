@@ -1,0 +1,12 @@
+:root {
+  --bg: #ffffff;
+  --bg-muted: #f4f4f5;
+  --text: #0a0a0a;
+  --text-muted: #52525b;
+  --accent: #00efff;
+  --accent-on: #0a0a0a;
+  --accent-muted: #e2beff;
+  --border: #e4e4e7;
+  --font-heading: IBM Plex Sans;
+  --font-body: IBM Plex Serif;
+}
