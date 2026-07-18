@@ -401,6 +401,58 @@ describe("sync with persistence", () => {
     delete process.env.LUNC_TX_PAGE_PAUSE_MS;
   });
 
+  it("live lunc sync without ctx.window defaults the filter window", async () => {
+    process.env.USE_FIXTURE_DEMO = "0";
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const rewards = JSON.parse(
+      readFileSync(join("tests/fixtures/lunc/rewards-sample.json"), "utf8"),
+    );
+    const withdraw = JSON.parse(
+      readFileSync(join("tests/fixtures/lunc/withdraw-txs-sample.json"), "utf8"),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes("/blocks/latest")) {
+          return {
+            ok: true,
+            json: async () => ({
+              block: {
+                header: {
+                  height: "29550000",
+                  time: new Date().toISOString(),
+                },
+              },
+            }),
+          };
+        }
+        if (u.includes("/cosmos/tx/v1beta1/txs")) {
+          if (u.includes("page=1")) {
+            return { ok: true, json: async () => withdraw };
+          }
+          return { ok: true, json: async () => ({ tx_responses: [] }) };
+        }
+        if (u.includes("/rewards")) {
+          return { ok: true, json: async () => rewards };
+        }
+        return { ok: false, status: 404, text: async () => "" };
+      }),
+    );
+    const { syncLuncStake } = await import("../../web/src/lib/sync");
+    // No window → covers ctx.window ?? default in live commit path
+    const result = await syncLuncStake(
+      "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
+      { userId: "u1" },
+    );
+    expect(result.status).toBe("ok");
+    expect(result.events.length).toBeGreaterThan(0);
+    vi.unstubAllGlobals();
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+  });
+
   it("live lunc sync maps adapter failures to user-facing errors", async () => {
     process.env.USE_FIXTURE_DEMO = "0";
     vi.stubGlobal(

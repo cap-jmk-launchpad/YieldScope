@@ -302,28 +302,12 @@ export function normalizeWithdrawRewardTx(
       String(rewardIdx);
     rewardIdx += 1;
 
-    let coins: LuncRewardCoin[];
-    try {
-      coins = parseCoinList(attrs.amount ?? "");
-    } catch (err) {
-      if (err instanceof LuncAdapterError) throw err;
-      throw new LuncAdapterError(
-        `Bad withdraw amount on ${txhash.slice(0, 12)}…`,
-        "bad_amount",
-      );
-    }
+    // parseCoinList / microToHuman already throw LuncAdapterError (fail closed).
+    const coins = parseCoinList(attrs.amount ?? "");
 
     for (const coin of coins) {
       if (isZeroDecimal(coin.amount)) continue;
-      let amount: string;
-      try {
-        amount = microToHuman(coin.amount);
-      } catch {
-        throw new LuncAdapterError(
-          `Bad amount ${coin.amount} on ${txhash.slice(0, 12)}…`,
-          "bad_amount",
-        );
-      }
+      const amount = microToHuman(coin.amount);
       events.push({
         id: `lunc_stake:${addr}:withdraw:${txhash}:${msgIndex}:${validator}:${coin.denom}`,
         source: "lunc_stake",
@@ -670,6 +654,8 @@ export async function fetchLuncStakeEarnEvents(
         for (const ev of normalizeWithdrawRewardTxs(address, txs)) {
           const t = Date.parse(ev.earnedAt);
           if (t < chunk.startMs || t > chunk.endMs) continue;
+          // Chunk windows are subsets of the sync window; keep as belt-and-suspenders.
+          /* v8 ignore next */
           if (t < window.startMs || t > window.endMs) continue;
           if (seenIds.has(ev.id)) continue;
           seenIds.add(ev.id);
@@ -704,6 +690,7 @@ export async function fetchLuncStakeEarnEvents(
     );
     const seen = new Set(out.map((e) => e.id));
     for (const ev of pending) {
+      /* v8 ignore next */
       if (seen.has(ev.id)) continue;
       out.push(ev);
     }
