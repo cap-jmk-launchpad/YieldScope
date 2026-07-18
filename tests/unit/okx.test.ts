@@ -5,8 +5,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   OkxAdapterError,
+  assetBillToEarnEvent,
+  accountBillToEarnEvent,
   fetchOkxEarnEvents,
   formatOkxApiError,
+  normalizeOkxAccountEarnBills,
+  normalizeOkxAssetBills,
   normalizeOkxEarn,
   resetOkxBaseCache,
   resolveOkxApiBases,
@@ -17,6 +21,22 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "../fixtures/okx");
 
 function load(name: string) {
   return JSON.parse(readFileSync(join(root, name), "utf8"));
+}
+
+/** Route OKX paths so lending / bills / balance fixtures don't collide. */
+function okxFetchRouter(
+  routes: Record<string, unknown>,
+  fallback: unknown = load("lending-empty.json"),
+) {
+  return vi.fn(async (url: string) => {
+    const u = String(url);
+    for (const [needle, body] of Object.entries(routes)) {
+      if (u.includes(needle)) {
+        return { ok: true, status: 200, json: async () => body };
+      }
+    }
+    return { ok: true, status: 200, json: async () => fallback };
+  });
 }
 
 describe("OKX earn adapter", () => {
@@ -87,9 +107,10 @@ describe("OKX earn adapter", () => {
     expect(resolveOkxApiBases()).toEqual(["https://eea.okx.com"]);
   });
 
-  it("resolveOkxApiBases lists EEA then global hosts by default", () => {
+  it("resolveOkxApiBases lists EEA then openapi/global hosts by default", () => {
     expect(resolveOkxApiBases()).toEqual([
       "https://eea.okx.com",
+      "https://openapi.okx.com",
       "https://www.okx.com",
       "https://my.okx.com",
     ]);
@@ -106,19 +127,30 @@ describe("OKX earn adapter", () => {
             JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
         };
       }
+      if (String(url).startsWith("https://openapi.okx.com")) {
+        return {
+          ok: false,
+          status: 401,
+          text: async () =>
+            JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
+        };
+      }
       if (String(url).startsWith("https://eea.okx.com")) {
+        // Lending succeeds; other paths empty so bills don't invent rows.
+        if (String(url).includes("lending-history")) {
+          return {
+            ok: true,
+            json: async () => load("lending-history.json"),
+          };
+        }
         return {
           ok: true,
-          json: async () => load("lending-history.json"),
+          json: async () => load("lending-empty.json"),
         };
       }
       throw new Error(`unexpected url ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-
-    // Seed sticky to www (simulates prior global-key success / old deploy order).
-    const basesBefore = resolveOkxApiBases();
-    expect(basesBefore[0]).toBe("https://eea.okx.com");
 
     // Direct probe with sticky cleared — EEA succeeds first for EEA keys.
     resetOkxBaseCache();
@@ -136,15 +168,19 @@ describe("OKX earn adapter", () => {
   it("falls back from sticky www to EEA on 50119 and clears sticky", async () => {
     // First establish sticky www via a successful www response, then flip to 50119.
     let phase: "seed" | "fail401" = "seed";
+    const reject50119 = {
+      ok: false,
+      status: 401,
+      text: async () =>
+        JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
+    };
     const fetchMock = vi.fn(async (url: string) => {
       const u = String(url);
       if (phase === "seed" && u.startsWith("https://eea.okx.com")) {
-        return {
-          ok: false,
-          status: 401,
-          text: async () =>
-            JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
-        };
+        return reject50119;
+      }
+      if (phase === "seed" && u.startsWith("https://openapi.okx.com")) {
+        return reject50119;
       }
       if (phase === "seed" && u.startsWith("https://www.okx.com")) {
         return {
@@ -153,26 +189,25 @@ describe("OKX earn adapter", () => {
         };
       }
       if (phase === "fail401" && u.startsWith("https://www.okx.com")) {
-        return {
-          ok: false,
-          status: 401,
-          text: async () =>
-            JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
-        };
+        return reject50119;
+      }
+      if (phase === "fail401" && u.startsWith("https://openapi.okx.com")) {
+        return reject50119;
       }
       if (phase === "fail401" && u.startsWith("https://eea.okx.com")) {
+        if (u.includes("lending-history")) {
+          return {
+            ok: true,
+            json: async () => load("lending-history.json"),
+          };
+        }
         return {
           ok: true,
-          json: async () => load("lending-history.json"),
+          json: async () => load("lending-empty.json"),
         };
       }
       if (u.startsWith("https://my.okx.com")) {
-        return {
-          ok: false,
-          status: 401,
-          text: async () =>
-            JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
-        };
+        return reject50119;
       }
       throw new Error(`unexpected url ${u} phase=${phase}`);
     });
@@ -205,7 +240,7 @@ describe("OKX earn adapter", () => {
 
     const fetch2xx = vi.fn(async (url: string) => {
       const u = String(url);
-      if (u.startsWith("https://www.okx.com")) {
+      if (u.startsWith("https://www.okx.com") || u.startsWith("https://openapi.okx.com")) {
         return {
           ok: true,
           status: 200,
@@ -217,9 +252,15 @@ describe("OKX earn adapter", () => {
         };
       }
       if (u.startsWith("https://eea.okx.com")) {
+        if (u.includes("lending-history")) {
+          return {
+            ok: true,
+            json: async () => load("lending-history.json"),
+          };
+        }
         return {
           ok: true,
-          json: async () => load("lending-history.json"),
+          json: async () => load("lending-empty.json"),
         };
       }
       return {
@@ -240,10 +281,7 @@ describe("OKX earn adapter", () => {
   });
 
   it("sends OK-ACCESS passphrase and sign headers", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => load("lending-empty.json"),
-    });
+    const fetchMock = okxFetchRouter({});
     vi.stubGlobal("fetch", fetchMock);
     process.env.OKX_API_BASE = "https://www.okx.com";
 
@@ -266,10 +304,7 @@ describe("OKX earn adapter", () => {
   it("adds x-simulated-trading when OKX_SIMULATED_TRADING=1", async () => {
     process.env.OKX_API_BASE = "https://www.okx.com";
     process.env.OKX_SIMULATED_TRADING = "1";
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => load("lending-empty.json"),
-    });
+    const fetchMock = okxFetchRouter({});
     vi.stubGlobal("fetch", fetchMock);
     await fetchOkxEarnEvents({
       apiKey: "k",
@@ -309,10 +344,10 @@ describe("OKX earn adapter", () => {
         productId: `p${i}`,
       })),
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => page,
-    });
+    const fetchMock = okxFetchRouter(
+      { "lending-history": page },
+      load("lending-empty.json"),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const events = await fetchOkxEarnEvents({
       apiKey: "k",
@@ -320,8 +355,11 @@ describe("OKX earn adapter", () => {
       passphrase: "p",
     });
     expect(events.length).toBe(100);
+    const lendingCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("lending-history"),
+    );
     // First page sets after=lastTs; second page detects stuck cursor and stops.
-    expect(fetchMock.mock.calls.length).toBe(2);
+    expect(lendingCalls.length).toBe(2);
   });
 
   it("fails closed on malformed row", () => {
@@ -337,10 +375,7 @@ describe("OKX earn adapter", () => {
     process.env.OKX_API_BASE = "https://www.okx.com";
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => load("lending-history.json"),
-      }),
+      okxFetchRouter({ "lending-history": load("lending-history.json") }),
     );
     const events = await fetchOkxEarnEvents({
       apiKey: "k",
@@ -357,10 +392,7 @@ describe("OKX earn adapter", () => {
     // Fixture rows: 1719792000000 (2024-07-01) and 1719878400000 (2024-07-02)
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => page,
-      }),
+      okxFetchRouter({ "lending-history": page }),
     );
     const events = await fetchOkxEarnEvents(
       { apiKey: "k", apiSecret: "s", passphrase: "p" },
@@ -371,21 +403,17 @@ describe("OKX earn adapter", () => {
     );
     expect(events).toHaveLength(1);
     expect(events[0].asset).toBe("ETH");
-    const url = String(
-      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0],
+    const lendingUrl = String(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find((c) =>
+        String(c[0]).includes("lending-history"),
+      )?.[0],
     );
-    expect(url).toContain("after=");
+    expect(lendingUrl).toContain("after=");
   });
 
   it("fetchOkxEarnEvents with accessToken", async () => {
     process.env.OKX_API_BASE = "https://www.okx.com";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => load("lending-empty.json"),
-      }),
-    );
+    vi.stubGlobal("fetch", okxFetchRouter({}));
     const events = await fetchOkxEarnEvents({
       apiKey: "",
       apiSecret: "",
@@ -515,9 +543,8 @@ describe("OKX earn adapter", () => {
     process.env.OKX_API_BASE = "https://www.okx.com";
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
+      okxFetchRouter({
+        "lending-history": {
           code: "0",
           data: [
             {
@@ -527,7 +554,7 @@ describe("OKX earn adapter", () => {
               productId: "p",
             },
           ],
-        }),
+        },
       }),
     );
     const filtered = await fetchOkxEarnEvents(
@@ -538,5 +565,138 @@ describe("OKX earn adapter", () => {
       },
     );
     expect(filtered).toEqual([]);
+  });
+
+  it("normalizes asset interest bills and skips non-earn types", () => {
+    const events = normalizeOkxAssetBills(load("asset-bills-interest.json"));
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      source: "okx",
+      asset: "USDT",
+      amount: "1.25",
+      rawType: "ASSET_BILL_126",
+    });
+    expect(events[1].asset).toBe("ETH");
+    expect(
+      assetBillToEarnEvent({
+        billId: "x",
+        ccy: "USDT",
+        balChg: "-1",
+        type: "126",
+        ts: "1",
+      }),
+    ).toBeNull();
+  });
+
+  it("normalizes account earnAmt and ignores empty earnAmt trades", () => {
+    const events = normalizeOkxAccountEarnBills(
+      load("account-bills-earn.json"),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      asset: "USDT",
+      amount: "0.42",
+      rawType: "ACCOUNT_EARN",
+    });
+    expect(
+      accountBillToEarnEvent({
+        billId: "t",
+        ccy: "USDT",
+        ts: "1",
+        earnAmt: "",
+      }),
+    ).toBeNull();
+  });
+
+  it("merges funding interest bills when lending-history is empty", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    const fetchMock = okxFetchRouter({
+      "lending-history": load("lending-empty.json"),
+      "savings/balance": load("savings-balance.json"),
+      "asset/bills": load("asset-bills-interest.json"),
+      "asset/bills-history": load("lending-empty.json"),
+      "account/bills": load("lending-empty.json"),
+      "account/bills-archive": load("lending-empty.json"),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+
+    // type 126 rows only (redemption type 76 dropped); per-ccy lending still empty
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.rawType).sort()).toEqual([
+      "ASSET_BILL_126",
+      "ASSET_BILL_126",
+    ]);
+    expect(
+      fetchMock.mock.calls.some((c) => String(c[0]).includes("asset/bills")),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some((c) =>
+        String(c[0]).includes("type=126"),
+      ),
+    ).toBe(true);
+  });
+
+  it("merges account Auto Earn earnAmt when lending-history is empty", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": load("lending-empty.json"),
+        "asset/bills": load("lending-empty.json"),
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": load("account-bills-earn.json"),
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].rawType).toBe("ACCOUNT_EARN");
+    expect(events[0].amount).toBe("0.42");
+  });
+
+  it("retries lending-history per savings balance ccy when unfiltered is empty", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("lending-history") && u.includes("ccy=USDT")) {
+        return {
+          ok: true,
+          json: async () => load("lending-history.json"),
+        };
+      }
+      if (u.includes("lending-history")) {
+        return { ok: true, json: async () => load("lending-empty.json") };
+      }
+      if (u.includes("savings/balance")) {
+        return { ok: true, json: async () => load("savings-balance.json") };
+      }
+      return { ok: true, json: async () => load("lending-empty.json") };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events).toHaveLength(2);
+    expect(
+      fetchMock.mock.calls.some((c) =>
+        String(c[0]).includes("lending-history") &&
+        String(c[0]).includes("ccy=USDT"),
+      ),
+    ).toBe(true);
   });
 });

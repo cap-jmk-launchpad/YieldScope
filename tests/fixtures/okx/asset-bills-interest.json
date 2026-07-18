@@ -1,0 +1,33 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {
+      "billId": "bill-usdt-1",
+      "ccy": "USDT",
+      "balChg": "1.25",
+      "bal": "1001.25",
+      "type": "126",
+      "ts": "1722470400000",
+      "notes": "Simple Earn interest"
+    },
+    {
+      "billId": "bill-eth-1",
+      "ccy": "ETH",
+      "balChg": "0.0008",
+      "bal": "1.0008",
+      "type": "126",
+      "ts": "1722556800000",
+      "notes": "Simple Earn interest"
+    },
+    {
+      "billId": "bill-redeem",
+      "ccy": "USDT",
+      "balChg": "500",
+      "bal": "1500",
+      "type": "76",
+      "ts": "1722643200000",
+      "notes": "Savings redemption — not earn"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {
+      "billId": "acct-1",
+      "ccy": "USDT",
+      "ts": "1722729600000",
+      "type": "2",
+      "subType": "1",
+      "earnAmt": "0.42",
+      "balChg": "0.42"
+    },
+    {
+      "billId": "acct-trade",
+      "ccy": "USDT",
+      "ts": "1722816000000",
+      "type": "2",
+      "earnAmt": "",
+      "balChg": "-10"
+    }
+  ]
+}
