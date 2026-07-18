@@ -2514,4 +2514,17 @@ describe("ledger-db persistence", () => {
     });
     expect(await loadUserEarnAssets("u1")).toEqual([]);
   });
+
+  it("refreshEarnAggregatesForProfile fails closed when admin not configured", async () => {
+    isAdminConfigured.mockReturnValue(false);
+    const { refreshEarnAggregatesForProfile, LedgerPersistError } = await import(
+      "../../web/src/lib/ledger-db"
+    );
+    await expect(refreshEarnAggregatesForProfile("p1")).rejects.toBeInstanceOf(
+      LedgerPersistError,
+    );
+    await expect(refreshEarnAggregatesForProfile("p1")).rejects.toThrow(
+      /cannot refresh aggregates/,
+    );
+  });
 });
