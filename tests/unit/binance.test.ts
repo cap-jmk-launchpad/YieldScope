@@ -17,6 +17,7 @@ function load(name: string) {
 describe("Binance Simple Earn adapter", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("normalizes reward rows from fixture", () => {
@@ -202,5 +203,34 @@ describe("Binance Simple Earn adapter", () => {
     await expect(
       fetchBinanceEarnEvents({ apiKey: "", apiSecret: "" }),
     ).rejects.toThrow(/Missing Binance/);
+  });
+
+  it("paginates until page cap when total stays ahead", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        const rows = Array.from({ length: 100 }, (_, i) => ({
+          asset: "USDT",
+          rewards: String(i),
+          time: 1_719_792_000_000 + calls * 10_000 + i,
+          projectId: `p${calls}-${i}`,
+        }));
+        return {
+          ok: true,
+          json: async () => ({ rows, total: 9_999 }),
+        };
+      }),
+    );
+    const events = await fetchBinanceEarnEvents(
+      { apiKey: "k", apiSecret: "s" },
+      {
+        startMs: Date.parse("2024-07-01T00:00:00.000Z"),
+        endMs: Date.parse("2024-07-05T00:00:00.000Z"),
+      },
+    );
+    expect(calls).toBe(50);
+    expect(events.length).toBe(5000);
   });
 });

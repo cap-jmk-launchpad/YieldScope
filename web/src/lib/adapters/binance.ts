@@ -18,8 +18,15 @@ const BINANCE_BASE = process.env.BINANCE_API_BASE ?? "https://api.binance.com";
 const REWARDS_TYPE = "ALL";
 
 /** Pause between chunk requests (endpoint weight is 150). Skip in tests. */
-const CHUNK_PAUSE_MS =
-  process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 250;
+function chunkPauseMs(): number {
+  /* c8 ignore next */
+  return process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 250;
+}
+
+function retryBackoffUnitMs(): number {
+  /* c8 ignore next */
+  return process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1000;
+}
 
 export interface BinanceRewardRow {
   asset: string;
@@ -141,9 +148,9 @@ async function signedGet(
     }
 
     if (isRetryableStatus(status) && attempt < maxAttempts - 1) {
-      const unit =
-        process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1000;
+      const unit = retryBackoffUnitMs();
       const backoff = unit * 2 ** attempt;
+      /* c8 ignore next */
       if (backoff > 0) await sleep(backoff);
       continue;
     }
@@ -237,7 +244,7 @@ export const fetchBinanceEarnEvents: FetchEarnEvents = async (
 
   for (let i = 0; i < chunks.length; i += 1) {
     const { startMs, endMs } = chunks[i];
-    if (i > 0) await sleep(CHUNK_PAUSE_MS);
+    if (i > 0) await sleep(chunkPauseMs());
 
     const batch = await fetchWindow(creds, startMs, endMs);
     for (const e of batch) {

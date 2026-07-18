@@ -1237,4 +1237,338 @@ describe("ledger-db persistence", () => {
     });
     await expect(loadDbLedger("u1")).rejects.toBeInstanceOf(LedgerPersistError);
   });
+
+  it("loadDbLedger nullish aggregates and source error rows", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: null,
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: null,
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  asset: "USDT",
+                  source: "binance",
+                  event_count: 1,
+                  total_amount: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async () => ({ data: null, error: null }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
+    const snap = await loadDbLedger("u1");
+    expect(snap.events).toEqual([]);
+    expect(snap.aggregates.bySource).toEqual([]);
+    expect(snap.aggregates.byAsset[0]?.totalAmount).toBe("0");
+  });
+
+  it("loadDbLedger throws on sourcesRes and earn page errors", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: null,
+              error: { message: "sources boom" },
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const { loadDbLedger, LedgerPersistError } = await import(
+      "../../web/src/lib/ledger-db"
+    );
+    await expect(loadDbLedger("u1")).rejects.toBeInstanceOf(LedgerPersistError);
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  status: "error",
+                  last_error: null,
+                  last_synced_at: null,
+                },
+                {
+                  source: "not_a_real_source",
+                  status: "ok",
+                  last_error: null,
+                  last_synced_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  event_count: 0,
+                  total_amount: null,
+                  last_earned_at: null,
+                },
+                {
+                  source: "not_a_real_source",
+                  event_count: 9,
+                  total_amount: null,
+                  last_earned_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: null, error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async () => ({
+                  data: null,
+                  error: { message: "page boom" },
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    await expect(loadDbLedger("u1")).rejects.toThrow(/page boom/);
+
+    // Successful load: error status + null last_error/synced, unknown source skipped,
+    // nullish aggregate fields + unknown aggregate source
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  status: "error",
+                  last_error: null,
+                  last_synced_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  event_count: 2,
+                  total_amount: null,
+                  last_earned_at: null,
+                },
+                {
+                  source: "not_a_real_source",
+                  event_count: 9,
+                  total_amount: 1,
+                  last_earned_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: null, error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async () => ({ data: [], error: null }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const snap = await loadDbLedger("u1");
+    expect(snap.sources.binance.eventCount).toBe(2);
+    expect(snap.sources.binance.error).toBeUndefined();
+
+    // listDistinctEarnAssets null data
+    from.mockImplementation((table: string) => {
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: async () => ({ data: null, error: null }),
+        };
+      }
+      return {};
+    });
+    const { listDistinctEarnAssets } = await import(
+      "../../web/src/lib/ledger-db"
+    );
+    expect(await listDistinctEarnAssets()).toEqual([]);
+  });
 });

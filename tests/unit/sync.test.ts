@@ -396,4 +396,66 @@ describe("sync with persistence", () => {
     expect(all.window?.mode).toBe("all");
     expect(all.forceFull).toBe(false);
   });
+
+  it("resolveCexSyncPlan treats high-water errors as cold start", async () => {
+    getSourceHighWaterMs.mockRejectedValueOnce(new Error("db"));
+    const { resolveCexSyncPlan } = await import("../../web/src/lib/sync");
+    const plan = await resolveCexSyncPlan({ userId: "u1" }, "binance");
+    expect(plan.persistMode).toBe("replace");
+    expect(plan.opts.allTime).toBe(true);
+  });
+
+  it("live okx success and binance empty-message fallback", async () => {
+    process.env.USE_FIXTURE_DEMO = "0";
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          code: "0",
+          data: [
+            { ccy: "USDT", amt: "1", ts: "1719792000000", productId: "p1" },
+          ],
+        }),
+      }),
+    );
+    const { syncOkx, syncBinance } = await import("../../web/src/lib/sync");
+    const okx = await syncOkx(dummyOkx, { userId: "u1" });
+    expect(okx.status).toBe("ok");
+    expect(okx.events).toHaveLength(1);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new Error("")),
+    );
+    const binance = await syncBinance(dummyCex, { userId: "u1" });
+    expect(binance.status).toBe("error");
+    expect(binance.error).toMatch(/Binance earn history/i);
+    vi.unstubAllGlobals();
+  });
+
+  it("fixturesRoot resolves when cwd ends with /web", async () => {
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(
+      "C:\\Users\\Julian\\Documents\\Programming\\hackathons\\buildanything.so\\web",
+    );
+    process.env.USE_FIXTURE_DEMO = "1";
+    const { syncBinance } = await import("../../web/src/lib/sync");
+    const result = await syncBinance(dummyCex, { userId: "u1" });
+    expect(result.status).toBe("ok");
+    cwdSpy.mockRestore();
+  });
+
+  it("userFacingAdapterError keeps non-infra raw strings", async () => {
+    process.env.USE_FIXTURE_DEMO = "0";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue("plain-string-failure"),
+    );
+    const { syncBinance } = await import("../../web/src/lib/sync");
+    const result = await syncBinance(dummyCex, { userId: "u1" });
+    expect(result.status).toBe("error");
+    expect(result.error).toBe("plain-string-failure");
+    vi.unstubAllGlobals();
+  });
 });

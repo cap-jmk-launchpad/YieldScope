@@ -92,6 +92,21 @@ describe("price-db upsert + latest queries", () => {
                         close: "100000",
                         open_time: "2026-07-18T08:00:00.000Z",
                       },
+                      {
+                        symbol: null,
+                        close: "1",
+                        open_time: "2026-07-18T08:00:00.000Z",
+                      },
+                      {
+                        symbol: "SKIP",
+                        close: null,
+                        open_time: "2026-07-18T08:00:00.000Z",
+                      },
+                      {
+                        symbol: "SKIP2",
+                        close: "1",
+                        open_time: null,
+                      },
                     ],
                     error: null,
                   };
@@ -121,6 +136,42 @@ describe("price-db upsert + latest queries", () => {
     expect(latest.BTCUSDT?.close).toBe(100000);
     expect(latest.ETHUSDT?.close).toBe(4000);
     expect(call).toBe(2);
+
+    // null data → ?? [] ; all symbols present → no 1d fallback
+    from.mockImplementation(() => ({
+      select: () => ({
+        in: () => ({
+          eq: () => ({
+            eq: async () => ({
+              data: null,
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    }));
+    expect(await loadLatestCloses(["BTCUSDT"], "1d")).toEqual({});
+
+    from.mockImplementation(() => ({
+      select: () => ({
+        in: () => ({
+          eq: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  symbol: "BTCUSDT",
+                  close: "1",
+                  open_time: "2026-07-18T08:00:00.000Z",
+                },
+              ],
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    }));
+    const only1m = await loadLatestCloses(["BTCUSDT"], "1m");
+    expect(only1m.BTCUSDT?.close).toBe(1);
   });
 
   it("loadCloseAtOrBefore returns nearest prior candle", async () => {

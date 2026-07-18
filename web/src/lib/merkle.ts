@@ -22,10 +22,10 @@ export function merkleRoot(events: EarnEvent[]): `0x${string}` {
   while (level.length > 1) {
     const next: `0x${string}`[] = [];
     for (let i = 0; i < level.length; i += 2) {
-      const left = level[i];
+      // `level` is sorted, so adjacent siblings are already ordered.
+      const left = level[i]!;
       const right = level[i + 1] ?? left;
-      const [a, b] = left <= right ? [left, right] : [right, left];
-      next.push(keccak256(concat([hexToBytes(a), hexToBytes(b)])));
+      next.push(keccak256(concat([hexToBytes(left), hexToBytes(right)])));
     }
     level = next.sort();
   }

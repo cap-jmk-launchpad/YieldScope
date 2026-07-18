@@ -312,4 +312,119 @@ describe("OKX earn adapter", () => {
       fetchOkxEarnEvents({ apiKey: "k", apiSecret: "s", passphrase: "p" }),
     ).rejects.toThrow(/HTTP 401/);
   });
+
+  it("covers network failover, missing creds, 50119 body, and final throws", async () => {
+    process.env.OKX_API_BASE = undefined;
+    delete process.env.OKX_API_BASE;
+    resetOkxBaseCache();
+
+    // Network error on www → try eea → success
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).startsWith("https://www.okx.com")) {
+        throw new Error("ECONNRESET");
+      }
+      return {
+        ok: true,
+        json: async () => load("lending-empty.json"),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      fetchOkxEarnEvents({ apiKey: "k", apiSecret: "s", passphrase: "p" }),
+    ).resolves.toEqual([]);
+
+    // Missing key/secret/passphrase (no accessToken)
+    await expect(
+      fetchOkxEarnEvents({ apiKey: "", apiSecret: "", passphrase: "" }),
+    ).rejects.toThrow(/Missing OKX credentials/);
+
+    // OkxAdapterError from okxGetOnce rethrown
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new OkxAdapterError("direct", "50111");
+      }),
+    );
+    // With pinned base so we don't regional-loop
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    await expect(
+      fetchOkxEarnEvents({ apiKey: "k", apiSecret: "s", passphrase: "p" }),
+    ).rejects.toThrow(/direct/);
+
+    // 50119 on last base with JSON body success status → final lastJson throw
+    resetOkxBaseCache();
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: "50119", msg: "API key doesn't exist" }),
+      })),
+    );
+    await expect(
+      fetchOkxEarnEvents({ apiKey: "k", apiSecret: "s", passphrase: "p" }),
+    ).rejects.toThrow(/50119|region/i);
+
+    // OAuth exhausts bases with non-json failure → last accessToken throw
+    resetOkxBaseCache();
+    delete process.env.OKX_API_BASE;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 503,
+        text: async () => "upstream",
+      })),
+    );
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "",
+        apiSecret: "",
+        accessToken: "tok",
+      }),
+    ).rejects.toThrow(/OAuth HTTP|HTTP 503/);
+
+    // API key exhausts with non-json → final HTTP throw
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        text: async () => "bad gateway",
+      })),
+    );
+    await expect(
+      fetchOkxEarnEvents({ apiKey: "k", apiSecret: "s", passphrase: "p" }),
+    ).rejects.toThrow(/HTTP 502/);
+
+    // Filters rows newer than endMs
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          code: "0",
+          data: [
+            {
+              ccy: "USDT",
+              amt: "1",
+              ts: String(Date.parse("2024-08-01T00:00:00.000Z")),
+              productId: "p",
+            },
+          ],
+        }),
+      }),
+    );
+    const filtered = await fetchOkxEarnEvents(
+      { apiKey: "k", apiSecret: "s", passphrase: "p" },
+      {
+        startMs: Date.parse("2024-07-01T00:00:00.000Z"),
+        endMs: Date.parse("2024-07-15T00:00:00.000Z"),
+      },
+    );
+    expect(filtered).toEqual([]);
+  });
 });

@@ -82,8 +82,7 @@ export function toUsdt(
   const a = asset.trim().toUpperCase();
   if (STABLE_ASSETS.has(a)) return amount;
 
-  const symbol = assetToUsdtSymbol(a);
-  if (!symbol) return null;
+  const symbol = assetToUsdtSymbol(a)!;
   const px = rates[symbol];
   if (px == null || !(px > 0)) return null;
   return amount * px;

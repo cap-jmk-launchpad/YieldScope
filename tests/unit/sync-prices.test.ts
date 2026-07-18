@@ -78,4 +78,73 @@ describe("syncPrices", () => {
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0]!.error).toMatch(/HTTP 400|Invalid symbol/i);
   });
+
+  it("rethrows non-soft fetch errors and records persist failures", async () => {
+    const { syncPrices } = await import("../../web/src/lib/prices/sync-prices");
+    const { PricePersistError } = await import(
+      "../../web/src/lib/prices/price-db"
+    );
+
+    loadMaxOpenTime.mockResolvedValue("2026-07-18T08:00:00.000Z");
+    const hard = await syncPrices({
+      symbols: ["BTCUSDT"],
+      fetchImpl: (async () => {
+        throw new Error("network down");
+      }) as unknown as typeof fetch,
+      backfill: false,
+    });
+    expect(hard.errors.some((e) => /network down/.test(e.error))).toBe(true);
+
+    loadMaxOpenTime.mockResolvedValue(null);
+    upsertOhlcvCandles.mockRejectedValueOnce(new PricePersistError("db down"));
+    const persistFail = await syncPrices({
+      symbols: ["BTCUSDT"],
+      fetchImpl: (async () => ({
+        ok: true,
+        json: async () => [
+          [Date.now(), "1", "1", "1", "1", "0", Date.now()],
+        ],
+        text: async () => "",
+      })) as unknown as typeof fetch,
+      backfill: true,
+      minuteLookbackDays: 1,
+      dailyLookbackDays: 1,
+    });
+    expect(persistFail.errors.some((e) => /db down/.test(e.error))).toBe(true);
+
+    upsertOhlcvCandles.mockRejectedValueOnce("string-fail");
+    const stringFail = await syncPrices({
+      symbols: ["ETHUSDT"],
+      fetchImpl: (async () => ({
+        ok: true,
+        json: async () => [
+          [Date.now(), "1", "1", "1", "1", "0", Date.now()],
+        ],
+        text: async () => "",
+      })) as unknown as typeof fetch,
+      backfill: true,
+      minuteLookbackDays: 1,
+      dailyLookbackDays: 1,
+    });
+    expect(stringFail.errors.some((e) => e.error === "string-fail")).toBe(true);
+  });
+
+  it("defaults symbols to TRACKED_SYMBOLS when omitted", async () => {
+    loadMaxOpenTime.mockResolvedValue(null);
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => [],
+      text: async () => "",
+    }));
+    const { syncPrices } = await import("../../web/src/lib/prices/sync-prices");
+    const result = await syncPrices({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      backfill: true,
+      minuteLookbackDays: 1,
+      dailyLookbackDays: 1,
+    });
+    expect(result.symbols).toEqual(
+      expect.arrayContaining(["BTCUSDT", "ETHUSDT"]),
+    );
+  });
 });

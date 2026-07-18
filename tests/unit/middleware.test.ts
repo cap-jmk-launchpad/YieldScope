@@ -207,4 +207,35 @@ describe("supabase middleware updateSession", () => {
     const res = await updateSession(makeReq("http://localhost/app"));
     expect(res.status).toBe(200);
   });
+
+  it("invokes cookies.getAll via supabase client options", async () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon";
+    const getAll = vi.fn(() => [{ name: "sb", value: "1" }]);
+    vi.doMock("@supabase/ssr", () => ({
+      createServerClient: (
+        _u: string,
+        _k: string,
+        opts: { cookies: { getAll: () => unknown } },
+      ) => {
+        opts.cookies.getAll();
+        return {
+          auth: {
+            getUser: async () => ({
+              data: { user: { id: "u1", email: "a@b.c" } },
+            }),
+          },
+        };
+      },
+    }));
+    vi.resetModules();
+    const { updateSession } = await import(
+      "../../web/src/lib/supabase/middleware"
+    );
+    const req = makeReq("http://localhost/app");
+    (req as { cookies: { getAll: typeof getAll } }).cookies.getAll = getAll;
+    const res = await updateSession(req);
+    expect(res.status).toBe(200);
+    expect(getAll).toHaveBeenCalled();
+  });
 });

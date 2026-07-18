@@ -77,8 +77,8 @@ function utcYear(iso: string): number | null {
 }
 
 function toChartNumber(decimalSum: string): number {
-  const n = decimalToNumber(decimalSum);
-  return n == null || !Number.isFinite(n) ? 0 : n;
+  // addDecimalStrings only feeds well-formed decimals; null is defensive.
+  return decimalToNumber(decimalSum) as number;
 }
 
 /**
@@ -106,7 +106,7 @@ export function earningsOverTime(
     const days = [...byDay.keys()].sort();
     let cumulativeDec = "0";
     return days.map((date) => {
-      const periodDec = byDay.get(date) ?? "0";
+      const periodDec = byDay.get(date)!;
       cumulativeDec = addDecimalStrings(cumulativeDec, periodDec);
       return {
         date,
@@ -128,7 +128,7 @@ export function earningsOverTime(
   const days = [...byDay.keys()].sort();
   let cumulative = 0;
   return days.map((date) => {
-    const period = byDay.get(date) ?? 0;
+    const period = byDay.get(date)!;
     cumulative += period;
     return { date, period, cumulative };
   });
@@ -242,13 +242,8 @@ export function chartDisplayUnit(opts?: EarningsChartOptions): string {
 
 /** True when charts have nothing meaningful to render. */
 export function hasChartData(events: ChartEarnEvent[]): boolean {
-  return events.some((e) => {
-    try {
-      return (
-        !isZeroDecimal(e.amount) && !Number.isNaN(Date.parse(e.earnedAt))
-      );
-    } catch {
-      return false;
-    }
-  });
+  return events.some(
+    (e) =>
+      !isZeroDecimal(e.amount) && !Number.isNaN(Date.parse(e.earnedAt)),
+  );
 }

@@ -627,4 +627,441 @@ describe("credentials-db persistence", () => {
     expect(maskWalletAddress(WALLET)).toBe("0x1111…1111");
     expect(maskWalletAddress("0xabc")).toBe("••••");
   });
+
+  it("covers status/save/load edge paths for 100% backend-ops", async () => {
+    const { encryptSecret, resolveCredentialsKeyMaterial } = await import(
+      "../../web/src/lib/credentials-crypto"
+    );
+    const {
+      loadCredentialsStatus,
+      saveCredentials,
+      loadBinanceCredentials,
+      loadOkxCredentials,
+      loadLuncAddress,
+      loadMonadWalletAddress,
+      CredentialsError,
+      summarizeSavedSources,
+    } = await import("../../web/src/lib/credentials-db");
+
+    isAdminConfigured.mockReturnValue(false);
+    await expect(loadCredentialsStatus("u1")).rejects.toThrow(/not configured/);
+    isAdminConfigured.mockReturnValue(true);
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+          update: () => ({
+            eq: async () => ({ error: { message: "profile wallet boom" } }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "lunc_stake",
+                  key_hint: null,
+                  updated_at: null,
+                },
+                { source: "unknown_src", key_hint: "x", updated_at: "t" },
+              ],
+              error: null,
+            }),
+          }),
+          upsert: async () => ({ error: null }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({
+                    data: null,
+                    error: { message: "wallet load boom" },
+                  }),
+                }),
+              }),
+            }),
+          }),
+          upsert: async () => ({ error: null }),
+        };
+      }
+      return {};
+    });
+    await expect(loadCredentialsStatus("u1")).rejects.toThrow(
+      /Failed loading wallet/,
+    );
+
+    await expect(
+      saveCredentials({
+        userId: "u1",
+        binance: { apiKey: "only-key", apiSecret: "" },
+      }),
+    ).rejects.toBeInstanceOf(CredentialsError);
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+          update: () => ({
+            eq: async () => ({ error: { message: "profile wallet boom" } }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          upsert: async () => ({ error: null }),
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          upsert: async () => ({ error: null }),
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    await expect(
+      saveCredentials({
+        userId: "u1",
+        luncAddress: "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
+        walletAddress: WALLET,
+      }),
+    ).rejects.toThrow(/profile wallet/);
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+          update: () => ({
+            eq: async () => ({ error: null }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          upsert: async () => ({ error: null }),
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "lunc_stake",
+                  key_hint: "terra1…ql8a",
+                  updated_at: "2026-07-18T00:00:00.000Z",
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return mockNoWallet();
+      }
+      return {};
+    });
+    const status = await saveCredentials({
+      userId: "u1",
+      luncAddress: "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
+    });
+    expect(status.lunc_stake.configured).toBe(true);
+    expect(
+      summarizeSavedSources({
+        binance: { configured: false },
+        okx: { configured: false },
+        monad_stake: { configured: false },
+        lunc_stake: { configured: true },
+      }),
+    ).toMatch(/LUNC address saved/);
+
+    isAdminConfigured.mockReturnValue(false);
+    expect(await loadBinanceCredentials("u1")).toBeNull();
+    expect(await loadMonadWalletAddress("u1")).toBeNull();
+    isAdminConfigured.mockReturnValue(true);
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    expect(await loadBinanceCredentials("u1")).toBeNull();
+    expect(await loadLuncAddress("u1")).toBeNull();
+    expect(await loadMonadWalletAddress("u1")).toBeNull();
+
+    const keyMat = resolveCredentialsKeyMaterial();
+    const okxCipher = encryptSecret(
+      JSON.stringify({ apiKey: "k", apiSecret: "s", passphrase: "p" }),
+      keyMat,
+    );
+    const emptyLunc = encryptSecret(JSON.stringify({ address: "" }), keyMat);
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: { ciphertext: okxCipher },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    expect(await loadBinanceCredentials("u1")).toBeNull();
+    expect(await loadOkxCredentials("u1")).toEqual({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: { ciphertext: emptyLunc },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    expect(await loadLuncAddress("u1")).toBeNull();
+
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: null,
+                  error: { message: "missing" },
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({
+                    data: null,
+                    error: { message: "w" },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    expect(await loadOkxCredentials("u1")).toBeNull();
+    expect(await loadMonadWalletAddress("u1")).toBeNull();
+
+    // null key_hint / updated_at / last_seen_at + wallet without chainId
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+          update: () => ({
+            eq: async () => ({ error: null }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          upsert: async () => ({ error: null }),
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  key_hint: null,
+                  updated_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          upsert: async () => ({ error: null }),
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({
+                    data: {
+                      address: WALLET,
+                      chain_id: 10143,
+                      last_seen_at: null,
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const { saveCredentials: save2, loadCredentialsStatus: load2 } =
+      await import("../../web/src/lib/credentials-db");
+    // wallet without chainId → save applies 10143
+    await save2({ userId: "u1", walletAddress: WALLET });
+    const st = await load2("u1");
+    expect(st.binance.keyHint).toBe("•••• saved");
+    expect(st.monad_stake.configured).toBe(true);
+
+    // credsRes.data null
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  source: "binance",
+                  key_hint: null,
+                  updated_at: null,
+                },
+                {
+                  source: "unknown_src",
+                  key_hint: "x",
+                  updated_at: "t",
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return mockNoWallet();
+      }
+      return {};
+    });
+    const empty = await load2("u1");
+    expect(empty.binance.configured).toBe(true);
+    expect(empty.binance.keyHint).toBe("•••• saved");
+
+    // data null → ?? []
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_credentials") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: null, error: null }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return mockNoWallet();
+      }
+      return {};
+    });
+    expect((await load2("u1")).binance.configured).toBe(false);
+  });
 });

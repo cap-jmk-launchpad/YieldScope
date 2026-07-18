@@ -217,13 +217,13 @@ export function cexCoverageRefreshHint(
   if (cex.length < 50) return null;
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
-  for (const e of cex) {
-    const t = Date.parse(e.earnedAt);
-    if (!Number.isFinite(t)) continue;
-    if (t < min) min = t;
-    if (t > max) max = t;
-  }
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+    for (const e of cex) {
+      const t = Date.parse(e.earnedAt);
+      if (!Number.isFinite(t)) continue;
+      if (t < min) min = t;
+      if (t > max) max = t;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
   const spanDays = (max - min) / DAY_MS;
   if (spanDays <= 3) {
     return "Exchange history only spans a few days in the ledger. Use “Re-download full history” or sync a wider Date range.";
@@ -244,9 +244,8 @@ export function parseSyncRangeBody(
       if (r.mode === "all") {
         return bodyForce ? { mode: "all", forceFull: true } : { mode: "all" };
       }
-      if (r.from == null && r.to == null) {
-        return bodyForce ? { mode: "all", forceFull: true } : undefined;
-      }
+      // mode omitted and both bounds omitted → optional all-time / forceFull
+      return bodyForce ? { mode: "all", forceFull: true } : undefined;
     }
     if (typeof r.from === "string" || typeof r.to === "string") {
       return {

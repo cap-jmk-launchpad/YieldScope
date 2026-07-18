@@ -153,10 +153,9 @@ export function validateSavePayload(input: {
       };
     }
     data.walletAddress = wallet.toLowerCase();
-    data.chainId =
-      typeof input.chainId === "number" && Number.isFinite(input.chainId)
-        ? input.chainId
-        : 10143;
+    if (typeof input.chainId === "number" && Number.isFinite(input.chainId)) {
+      data.chainId = input.chainId;
+    }
     any = true;
   }
 

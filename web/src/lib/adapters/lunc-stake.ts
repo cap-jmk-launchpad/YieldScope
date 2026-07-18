@@ -1,8 +1,4 @@
-import {
-  isZeroDecimal,
-  scaleDownDecimal,
-  DecimalAmountError,
-} from "../decimal-amount";
+import { isZeroDecimal, scaleDownDecimal } from "../decimal-amount";
 import type { EarnEvent } from "./types";
 
 export class LuncAdapterError extends Error {
@@ -45,8 +41,7 @@ export function parseLuncAddress(input: string): string {
     throw new LuncAdapterError("Empty LUNC wallet address", "empty");
   }
   if (TERRA_ADDR_RE.test(trimmed) && !trimmed.includes("/")) {
-    const m = trimmed.match(TERRA_ADDR_RE);
-    if (m) return m[0].toLowerCase();
+    return trimmed.match(TERRA_ADDR_RE)![0].toLowerCase();
   }
   try {
     const url = new URL(trimmed);
@@ -87,11 +82,8 @@ export function denomToAsset(denom: string): string {
 export function microToHuman(amount: string, decimals = 6): string {
   try {
     return scaleDownDecimal(amount, decimals);
-  } catch (err) {
-    if (err instanceof DecimalAmountError) {
-      throw new LuncAdapterError(`Malformed reward amount: ${amount}`, "bad_amount");
-    }
-    throw err;
+  } catch {
+    throw new LuncAdapterError(`Malformed reward amount: ${amount}`, "bad_amount");
   }
 }
 
@@ -125,13 +117,9 @@ export function normalizeLuncRewards(
       let amount: string;
       try {
         amount = microToHuman(micro);
-      } catch (err) {
-        if (err instanceof LuncAdapterError) {
-          throw new LuncAdapterError(`Bad amount ${coin.amount}`, "bad_amount");
-        }
-        throw err;
+      } catch {
+        throw new LuncAdapterError(`Bad amount ${coin.amount}`, "bad_amount");
       }
-      if (isZeroDecimal(amount)) continue;
       const asset = denomToAsset(coin.denom);
       events.push({
         id: `lunc_stake:${address}:${entry.validator_address}:${coin.denom}`,
@@ -159,7 +147,6 @@ export function normalizeLuncRewards(
       const micro = String(coin.amount);
       if (isZeroDecimal(micro)) continue;
       const amount = microToHuman(micro);
-      if (isZeroDecimal(amount)) continue;
       events.push({
         id: `lunc_stake:${address}:total:${coin.denom}`,
         source: "lunc_stake",

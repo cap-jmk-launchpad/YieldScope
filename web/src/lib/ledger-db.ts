@@ -364,9 +364,8 @@ export async function loadDbLedger(userId: string): Promise<DbLedgerSnapshot> {
   // Prefer aggregate counts (full ledger) over counting the loaded event page.
   for (const r of bySourceRes.data ?? []) {
     const src = r.source as SourceId;
-    if (src in sources) {
-      sources[src].eventCount = Number(r.event_count);
-    }
+    if (!(src in sources)) continue;
+    sources[src].eventCount = Number(r.event_count);
   }
 
   const aggregates: LedgerAggregates = {

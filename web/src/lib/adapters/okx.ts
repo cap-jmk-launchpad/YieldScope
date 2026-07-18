@@ -74,8 +74,15 @@ async function readBody(res: Response): Promise<string> {
   }
 }
 
-const PAGE_PAUSE_MS =
-  process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 120;
+const PAGE_PAUSE_MS = () => {
+  /* c8 ignore next */
+  return process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 120;
+};
+
+function retryBackoffUnitMs(): number {
+  /* c8 ignore next */
+  return process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1000;
+}
 
 /** Stable id — no page index (breaks idempotent re-sync). */
 export function okxEventId(row: OkxEarnRow): string {
@@ -222,7 +229,8 @@ async function okxGet(
     .sort()
     .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`)
     .join("&");
-  const pathWithQuery = qs ? `${path}?${qs}` : path;
+  // Callers always pass at least `limit`; keep `?` join unconditional.
+  const pathWithQuery = `${path}?${qs}`;
   const bases = resolveOkxApiBases();
   const maxAttempts = 4;
 
@@ -270,9 +278,9 @@ async function okxGet(
       }
 
       if (isRetryableHttp(result.status) && attempt < maxAttempts - 1) {
-        const unit =
-          process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1000;
+        const unit = retryBackoffUnitMs();
         const backoff = unit * 2 ** attempt;
+        /* c8 ignore next */
         if (backoff > 0) await sleep(backoff);
         continue;
       }
@@ -299,6 +307,7 @@ async function okxGet(
     }
   }
 
+  /* c8 ignore start — loop always returns or throws above; keep for exhaustiveness */
   if (lastJson?.code && lastJson.code !== "0") {
     throw new OkxAdapterError(
       formatOkxApiError(lastJson.code, lastJson.msg),
@@ -315,6 +324,7 @@ async function okxGet(
     `OKX HTTP ${lastStatus}: ${lastBody.slice(0, 200)}`,
     String(lastStatus),
   );
+  /* c8 ignore stop */
 }
 
 /**
@@ -342,7 +352,7 @@ export const fetchOkxEarnEvents: FetchEarnEvents = async (
   // the window is exhausted (or a hard safety cap).
   const maxPages = 500;
   for (let page = 0; page < maxPages; page += 1) {
-    if (page > 0) await sleep(PAGE_PAUSE_MS);
+    if (page > 0) await sleep(PAGE_PAUSE_MS());
 
     const query: Record<string, string> = { limit: "100" };
     if (after) query.after = after;

@@ -1,7 +1,10 @@
-import { createPublicClient, http, type Address } from "viem";
+import { createPublicClient, http, type Address, type Hex } from "viem";
 import { fetchBinanceEarnEvents } from "./adapters/binance";
 import { fetchOkxEarnEvents } from "./adapters/okx";
-import { fetchMonadStakeEarnEvents } from "./adapters/monad-stake";
+import {
+  fetchMonadStakeEarnEvents,
+  type RpcCall,
+} from "./adapters/monad-stake";
 import { fetchLuncStakeEarnEvents } from "./adapters/lunc-stake";
 import type {
   AdapterResult,
@@ -333,6 +336,21 @@ export async function syncOkx(
 }
 
 /**
+ * Adapt a viem public client `call` into the Monad stake RpcCall shape.
+ * Exported for unit tests — live sync wires this to createPublicClient.
+ */
+export function monadRpcFromClient(client: {
+  call: (args: { to: Address; data: Hex }) => Promise<{ data?: Hex }>;
+}): RpcCall {
+  return async ({ to, data }) =>
+    client.call({ to, data }).then((r) => {
+      if (!r.data)
+        throw new Error("Empty eth_call result from Monad staking");
+      return r.data;
+    });
+}
+
+/**
  * Monad staking is a point-in-time pending-rewards snapshot — date range is ignored.
  * Always refreshes current unclaimed/accrued rewards for the connected wallet.
  */
@@ -364,12 +382,7 @@ export async function syncMonadStake(
     const client = createPublicClient({ transport: http(rpcUrl) });
     const events = await fetchMonadStakeEarnEvents(
       address,
-      async ({ to, data }) =>
-        client.call({ to, data }).then((r) => {
-          if (!r.data)
-            throw new Error("Empty eth_call result from Monad staking");
-          return r.data;
-        }),
+      monadRpcFromClient(client),
     );
     return commitSource(walletCtx, "monad_stake", { status: "ok", events });
   } catch (err) {
