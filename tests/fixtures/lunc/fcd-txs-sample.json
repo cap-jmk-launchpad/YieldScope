@@ -1,0 +1,105 @@
+{
+  "next": 1001,
+  "limit": 100,
+  "txs": [
+    {
+      "txhash": "FCDHASH0001ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCD",
+      "height": "29000000",
+      "code": 0,
+      "timestamp": "2026-05-01T12:00:00Z",
+      "logs": [
+        {
+          "events": [
+            {
+              "type": "withdraw_rewards",
+              "attributes": [
+                {
+                  "key": "amount",
+                  "value": "5000000uluna"
+                },
+                {
+                  "key": "validator",
+                  "value": "terravaloper1autostake"
+                },
+                {
+                  "key": "delegator",
+                  "value": "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"
+                },
+                {
+                  "key": "msg_index",
+                  "value": "0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "tx": {
+        "body": {
+          "messages": [{ "@type": "/cosmos.authz.v1beta1.MsgExec" }]
+        }
+      }
+    },
+    {
+      "txhash": "FCDHASH0002ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCD",
+      "height": "28000000",
+      "code": 0,
+      "timestamp": "2025-01-15T08:30:00Z",
+      "logs": [
+        {
+          "events": [
+            {
+              "type": "withdraw_rewards",
+              "attributes": [
+                {
+                  "key": "amount",
+                  "value": "2500000uluna,100uusd"
+                },
+                {
+                  "key": "validator",
+                  "value": "terravaloper1autostake"
+                },
+                {
+                  "key": "delegator",
+                  "value": "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"
+                },
+                {
+                  "key": "msg_index",
+                  "value": "0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "tx": {
+        "body": {
+          "messages": [
+            {
+              "@type": "/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "txhash": "FCDHASH0003SENDONLYABCDEF0123456789ABCDEF0123456789ABCDEF012345",
+      "height": "27500000",
+      "code": 0,
+      "timestamp": "2024-11-01T00:00:00Z",
+      "logs": [
+        {
+          "events": [
+            {
+              "type": "transfer",
+              "attributes": [
+                { "key": "amount", "value": "1uluna" },
+                { "key": "recipient", "value": "terra1other" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

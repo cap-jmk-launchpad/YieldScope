@@ -169,15 +169,25 @@ async function loadFixtureEvents(
     return normalizeOkxEarn(payload);
   }
   if (source === "lunc_stake") {
-    const { normalizeLuncRewards } = await import("./adapters/lunc-stake");
-    const payload = JSON.parse(
-      readFileSync(join(root, "lunc", "rewards-sample.json"), "utf8"),
-    );
-    return normalizeLuncRewards(
-      "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
-      payload,
+    const {
+      normalizeLuncRewards,
+      normalizeWithdrawRewardTxs,
+    } = await import("./adapters/lunc-stake");
+    const addr = "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a";
+    const pending = normalizeLuncRewards(
+      addr,
+      JSON.parse(
+        readFileSync(join(root, "lunc", "rewards-sample.json"), "utf8"),
+      ),
       new Date("2024-07-01T00:00:00.000Z"),
     );
+    const claimed = normalizeWithdrawRewardTxs(
+      addr,
+      JSON.parse(
+        readFileSync(join(root, "lunc", "withdraw-txs-sample.json"), "utf8"),
+      ).tx_responses ?? [],
+    );
+    return [...claimed, ...pending];
   }
   const { decodeGetDelegatorResult, delegatorStatesToEarnEvents } =
     await import("./adapters/monad-stake");
@@ -408,9 +418,9 @@ export async function syncMonadStake(
 }
 
 /**
- * LUNC: crawl claimed withdraw-reward txs for the sync window, plus current
- * pending when the window reaches “now”. Persist plan matches CEX
- * (merge / replace / upsert).
+ * LUNC: crawl claimed withdraw-reward / autostake txs (FCD account history;
+ * LCD event-search fallback) for the sync window, plus current pending when
+ * the window reaches “now”. Persist plan matches CEX (merge / replace / upsert).
  */
 export async function syncLuncStake(
   addressOrLink: string | null,

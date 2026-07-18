@@ -52,6 +52,27 @@ export interface LuncTxSearchResponse {
   pagination?: { next_key?: string | null; total?: string } | null;
 }
 
+/** FCD `/v1/txs?account=` row — events live under `logs[]`, not top-level. */
+export interface LuncFcdTx {
+  txhash?: string;
+  height?: string | number;
+  code?: number | string;
+  timestamp?: string;
+  logs?: Array<{
+    events?: Array<{
+      type?: string;
+      attributes?: Array<{ key?: string; value?: string }>;
+    }>;
+  }> | null;
+  tx?: LuncTxResponse["tx"];
+}
+
+export interface LuncFcdTxsResponse {
+  next?: string | number | null;
+  limit?: number;
+  txs?: LuncFcdTx[];
+}
+
 const TERRA_ADDR_RE = /terra1[0-9a-z]{38,58}/i;
 const DEFAULT_LCD =
   process.env.LUNC_LCD_URL ?? "https://terra-classic-lcd.publicnode.com";
@@ -64,9 +85,25 @@ const FALLBACK_LCDS = (
   .map((s) => s.trim())
   .filter(Boolean);
 
+/**
+ * FCD (Finder Consumer Data) indexes account txs beyond public LCD prune
+ * windows (~100d). Primary source for multi-year autostake / claim history.
+ */
+const DEFAULT_FCD =
+  process.env.LUNC_FCD_URL ?? "https://terra-classic-fcd.publicnode.com";
+const FALLBACK_FCDS = (
+  process.env.LUNC_FCD_FALLBACKS ??
+  "https://fcd.terra-classic.hexxagon.io,https://terra-classic-fcd.publicnode.com"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 /** Terra Classic tends toward ~6s blocks; used only for height window hints. */
 const BLOCK_TIME_MS = Number(process.env.LUNC_BLOCK_TIME_MS ?? 6000);
 const PAGE_LIMIT = 100;
+/** FCD `/v1/txs` only accepts limit 10 or 100. */
+const FCD_PAGE_LIMIT = 100;
 const PAGE_PAUSE_MS = () =>
   Number(process.env.LUNC_TX_PAGE_PAUSE_MS ?? 250);
 const HEIGHT_SLACK_BLOCKS = 2_000; // ~3h slack so boundary txs are not missed
@@ -343,6 +380,30 @@ export function normalizeWithdrawRewardTxs(
   return out;
 }
 
+/**
+ * Flatten FCD `logs[].events` into the LCD-style top-level `events` shape so
+ * `normalizeWithdrawRewardTx` can stay single-path.
+ */
+export function fcdTxToLcdShape(tx: LuncFcdTx): LuncTxResponse {
+  if (!tx || typeof tx !== "object") {
+    throw new LuncAdapterError("Malformed FCD tx", "malformed");
+  }
+  const events: NonNullable<LuncTxResponse["events"]> = [];
+  for (const log of tx.logs ?? []) {
+    for (const ev of log.events ?? []) {
+      events.push(ev);
+    }
+  }
+  return {
+    txhash: tx.txhash,
+    height: tx.height,
+    code: tx.code ?? 0,
+    timestamp: tx.timestamp,
+    events,
+    tx: tx.tx,
+  };
+}
+
 interface LatestBlock {
   height: number;
   timeMs: number;
@@ -537,6 +598,122 @@ export async function crawlWithdrawRewardTxs(
   return collected;
 }
 
+async function fetchFcdPage(
+  fcd: string,
+  address: string,
+  offset: string | number | null | undefined,
+  fetchImpl: typeof fetch,
+): Promise<{ txs: LuncFcdTx[]; next: string | number | null }> {
+  const params = new URLSearchParams();
+  params.set("account", address);
+  params.set("limit", String(FCD_PAGE_LIMIT));
+  if (offset != null && offset !== "") {
+    params.set("offset", String(offset));
+  }
+  const url = `${fcd}/v1/txs?${params.toString()}`;
+  const res = await fetchImpl(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) {
+    throw new LuncAdapterError(
+      `Terra Classic FCD HTTP ${res.status}`,
+      String(res.status),
+    );
+  }
+  const raw = (await res.json()) as LuncFcdTxsResponse;
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.txs)) {
+    throw new LuncAdapterError("Malformed FCD txs response", "malformed");
+  }
+  const next =
+    raw.next === undefined || raw.next === null || raw.next === ""
+      ? null
+      : raw.next;
+  return { txs: raw.txs, next };
+}
+
+/**
+ * Paginated FCD account history (newest first). Collects txs in the time
+ * window; callers normalize `withdraw_rewards` only (fail closed, no invented
+ * amounts). Public LCDs prune ~100d — FCD is required for multi-year autostakes.
+ */
+export async function crawlFcdAccountTxs(
+  address: string,
+  opts: {
+    fcdUrl: string;
+    fetchImpl?: typeof fetch;
+    startMs?: number;
+    endMs?: number;
+  },
+): Promise<LuncTxResponse[]> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fcd = opts.fcdUrl.replace(/\/$/, "");
+  const seen = new Set<string>();
+  const collected: LuncTxResponse[] = [];
+  let offset: string | number | null | undefined;
+
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    if (page > 1) await sleep(PAGE_PAUSE_MS());
+    const { txs, next } = await fetchFcdPage(fcd, address, offset, fetchImpl);
+    if (txs.length === 0) break;
+
+    let newCount = 0;
+    let oldestMs = Number.POSITIVE_INFINITY;
+    for (const fcdTx of txs) {
+      const tx = fcdTxToLcdShape(fcdTx);
+      const hash = tx.txhash?.trim();
+      if (!hash || seen.has(hash)) continue;
+      seen.add(hash);
+      newCount += 1;
+
+      const t = Date.parse(tx.timestamp ?? "");
+      if (Number.isFinite(t) && t < oldestMs) oldestMs = t;
+      collected.push(tx);
+    }
+
+    if (newCount === 0) break;
+
+    // Newest-first: once the whole page is older than startMs, stop.
+    if (
+      opts.startMs != null &&
+      Number.isFinite(oldestMs) &&
+      oldestMs < opts.startMs &&
+      txs.every((fcdTx) => {
+        const t = Date.parse(fcdTx.timestamp ?? "");
+        return Number.isFinite(t) && t < opts.startMs!;
+      })
+    ) {
+      break;
+    }
+
+    if (next == null) break;
+    offset = next;
+  }
+
+  return collected;
+}
+
+/** Parse “lowest height is N” from pruned LCD block errors. */
+export function parseLowestHeightMessage(body: string): number | null {
+  const m = body.match(/lowest height is (\d+)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
+async function detectLcdPruneHeight(
+  lcd: string,
+  fetchImpl: typeof fetch,
+): Promise<number | null> {
+  try {
+    const url = `${lcd}/cosmos/base/tendermint/v1beta1/blocks/1`;
+    const res = await fetchImpl(url, { headers: { Accept: "application/json" } });
+    if (res.ok) return 1;
+    const body = await res.text().catch(() => "");
+    return parseLowestHeightMessage(body);
+  } catch {
+    // Best-effort — prune detection must never block history crawl.
+    return null;
+  }
+}
+
 async function fetchPendingRewards(
   address: string,
   lcd: string,
@@ -569,6 +746,20 @@ export function lcdCandidates(primary: string): string[] {
   return out;
 }
 
+/** Deduped primary + env fallback FCD base URLs. */
+export function fcdCandidates(primary: string): string[] {
+  const list = [primary, ...FALLBACK_FCDS.map((s) => s.replace(/\/$/, ""))];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const fcd of list) {
+    const n = fcd.replace(/\/$/, "");
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
 /**
  * Split [startMs, endMs] into ≤90-day crawl windows (newest first) so each
  * height-bounded LCD search stays small and edge timeouts stay unlikely.
@@ -592,6 +783,7 @@ export function luncHistoryChunks(
 
 export interface FetchLuncStakeOptions extends EarnFetchOptions {
   lcdUrl?: string;
+  fcdUrl?: string;
   fetchImpl?: typeof fetch;
   /** Override pending inclusion (default: when window reaches “now”). */
   includePending?: boolean;
@@ -599,14 +791,88 @@ export interface FetchLuncStakeOptions extends EarnFetchOptions {
   nowMs?: number;
   /** Injected latest block for tests (skips /blocks/latest). */
   latestBlock?: LatestBlock;
+  /**
+   * Force LCD event-search history (skips FCD). Tests / emergency only —
+   * public LCDs typically retain ~100 days of blocks.
+   */
+  historySource?: "auto" | "fcd" | "lcd";
+}
+
+async function crawlLcdHistory(
+  address: string,
+  opts: {
+    lcds: string[];
+    window: { startMs: number; endMs: number };
+    fetchImpl: typeof fetch;
+    latestBlock?: LatestBlock;
+  },
+): Promise<{ events: EarnEvent[]; usedLcd: string }> {
+  let lastErr: unknown;
+  for (const lcd of opts.lcds) {
+    try {
+      const latest =
+        opts.latestBlock ?? (await fetchLatestBlock(lcd, opts.fetchImpl));
+      const pruneHeight = await detectLcdPruneHeight(lcd, opts.fetchImpl);
+      const chunks = luncHistoryChunks(opts.window.startMs, opts.window.endMs);
+      const seenIds = new Set<string>();
+      const events: EarnEvent[] = [];
+
+      for (let i = 0; i < chunks.length; i += 1) {
+        const chunk = chunks[i];
+        if (i > 0) await sleep(PAGE_PAUSE_MS());
+
+        const rawMin = estimateHeightAt(chunk.startMs, latest);
+        const rawMax = estimateHeightAt(chunk.endMs, latest);
+        let heightMin = Math.max(1, Math.min(rawMin, rawMax) - HEIGHT_SLACK_BLOCKS);
+        const heightMax = Math.max(rawMin, rawMax) + HEIGHT_SLACK_BLOCKS;
+        if (pruneHeight != null) {
+          heightMin = Math.max(heightMin, pruneHeight);
+        }
+        if (heightMin > heightMax) continue;
+
+        const txs = await crawlWithdrawRewardTxs(address, {
+          lcdUrl: lcd,
+          heightMin,
+          heightMax,
+          fetchImpl: opts.fetchImpl,
+          startMs: chunk.startMs,
+          endMs: chunk.endMs,
+        });
+
+        for (const ev of normalizeWithdrawRewardTxs(address, txs)) {
+          const t = Date.parse(ev.earnedAt);
+          if (t < chunk.startMs || t > chunk.endMs) continue;
+          /* v8 ignore next */
+          if (t < opts.window.startMs || t > opts.window.endMs) continue;
+          if (seenIds.has(ev.id)) continue;
+          seenIds.add(ev.id);
+          events.push(ev);
+        }
+      }
+
+      return { events, usedLcd: lcd };
+    } catch (err) {
+      lastErr = err;
+      if (!(err instanceof LuncAdapterError)) throw err;
+      if (
+        err.code === "malformed" ||
+        err.code === "bad_amount" ||
+        err.code === "bad_range"
+      ) {
+        throw err;
+      }
+    }
+  }
+  if (lastErr) throw lastErr;
+  throw new LuncAdapterError("No Terra Classic LCD available", "no_lcd");
 }
 
 /**
  * Fetch LUNC stake earn events:
- * 1. Historical **claimed** rewards from chain txs (`withdraw_rewards` events)
- *    inside the sync window (paginated LCD tx search).
- * 2. Optional **current pending** snapshot from distribution LCD (separate
- *    rawTypes / ids — never mixed into claimed amounts).
+ * 1. Historical **claimed** rewards (`withdraw_rewards` / autostake claims)
+ *    from FCD account history (multi-year; public LCDs prune ~100d).
+ * 2. LCD event-search fallback when FCD is unavailable.
+ * 3. Optional **current pending** snapshot from distribution LCD.
  *
  * Fail closed on HTTP / malformed payloads. Does not invent amounts.
  */
@@ -618,78 +884,96 @@ export async function fetchLuncStakeEarnEvents(
   const fetchImpl = opts?.fetchImpl ?? fetch;
   const nowMs = opts?.nowMs ?? Date.now();
   const window = resolveFetchWindow(opts, nowMs);
-  const primary = (opts?.lcdUrl ?? DEFAULT_LCD).replace(/\/$/, "");
-  const lcds = lcdCandidates(primary);
+  const primaryLcd = (opts?.lcdUrl ?? DEFAULT_LCD).replace(/\/$/, "");
+  const primaryFcd = (opts?.fcdUrl ?? DEFAULT_FCD).replace(/\/$/, "");
+  const lcds = lcdCandidates(primaryLcd);
+  const source = opts?.historySource ?? "auto";
 
-  let lastErr: unknown;
   let history: EarnEvent[] = [];
-  let usedLcd = primary;
+  let usedLcd = primaryLcd;
+  let historyOk = false;
+  let lastErr: unknown;
 
-  for (const lcd of lcds) {
-    try {
-      const latest =
-        opts?.latestBlock ?? (await fetchLatestBlock(lcd, fetchImpl));
-      const chunks = luncHistoryChunks(window.startMs, window.endMs);
-      const seenIds = new Set<string>();
-      const events: EarnEvent[] = [];
-
-      for (let i = 0; i < chunks.length; i += 1) {
-        const chunk = chunks[i];
-        if (i > 0) await sleep(PAGE_PAUSE_MS());
-
-        const rawMin = estimateHeightAt(chunk.startMs, latest);
-        const rawMax = estimateHeightAt(chunk.endMs, latest);
-        const heightMin = Math.max(1, Math.min(rawMin, rawMax) - HEIGHT_SLACK_BLOCKS);
-        const heightMax = Math.max(rawMin, rawMax) + HEIGHT_SLACK_BLOCKS;
-
-        const txs = await crawlWithdrawRewardTxs(address, {
-          lcdUrl: lcd,
-          heightMin,
-          heightMax,
+  if (source === "auto" || source === "fcd") {
+    for (const fcd of fcdCandidates(primaryFcd)) {
+      try {
+        const txs = await crawlFcdAccountTxs(address, {
+          fcdUrl: fcd,
           fetchImpl,
-          startMs: chunk.startMs,
-          endMs: chunk.endMs,
+          startMs: window.startMs,
+          endMs: window.endMs,
         });
-
+        const seenIds = new Set<string>();
+        const events: EarnEvent[] = [];
         for (const ev of normalizeWithdrawRewardTxs(address, txs)) {
           const t = Date.parse(ev.earnedAt);
-          if (t < chunk.startMs || t > chunk.endMs) continue;
-          // Chunk windows are subsets of the sync window; keep as belt-and-suspenders.
-          /* v8 ignore next */
           if (t < window.startMs || t > window.endMs) continue;
           if (seenIds.has(ev.id)) continue;
           seenIds.add(ev.id);
           events.push(ev);
         }
+        history = events;
+        historyOk = true;
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (!(err instanceof LuncAdapterError)) throw err;
+        if (
+          err.code === "malformed" ||
+          err.code === "bad_amount" ||
+          err.code === "bad_range"
+        ) {
+          throw err;
+        }
       }
-
-      history = events;
-      usedLcd = lcd;
-      lastErr = null;
-      break;
-    } catch (err) {
-      lastErr = err;
-      // Try next LCD only on hard transport / HTTP failures.
-      if (!(err instanceof LuncAdapterError)) throw err;
-      if (err.code === "malformed" || err.code === "bad_amount" || err.code === "bad_range") {
-        throw err;
-      }
+    }
+    if (historyOk === false && source === "fcd") {
+      if (lastErr) throw lastErr;
+      throw new LuncAdapterError("No Terra Classic FCD available", "no_fcd");
     }
   }
 
-  if (lastErr) throw lastErr;
+  if (!historyOk && (source === "auto" || source === "lcd")) {
+    const lcdResult = await crawlLcdHistory(address, {
+      lcds,
+      window,
+      fetchImpl,
+      latestBlock: opts?.latestBlock,
+    });
+    history = lcdResult.events;
+    usedLcd = lcdResult.usedLcd;
+    historyOk = true;
+  }
+
+  if (!historyOk && lastErr) throw lastErr;
 
   const out = [...history];
 
   if (shouldIncludePending(window.endMs, nowMs, opts?.includePending)) {
-    const pending = await fetchPendingRewards(
-      address,
-      usedLcd,
-      fetchImpl,
-      new Date(nowMs),
-    );
+    // Prefer a working LCD for pending; try candidates if usedLcd fails.
+    let pending: EarnEvent[] | null = null;
+    let pendingErr: unknown;
+    for (const lcd of lcdCandidates(usedLcd)) {
+      try {
+        pending = await fetchPendingRewards(
+          address,
+          lcd,
+          fetchImpl,
+          new Date(nowMs),
+        );
+        usedLcd = lcd;
+        pendingErr = null;
+        break;
+      } catch (err) {
+        pendingErr = err;
+        if (!(err instanceof LuncAdapterError)) throw err;
+        if (err.code === "malformed" || err.code === "bad_amount") throw err;
+      }
+    }
+    if (pendingErr) throw pendingErr;
     const seen = new Set(out.map((e) => e.id));
-    for (const ev of pending) {
+    for (const ev of pending ?? []) {
       /* v8 ignore next */
       if (seen.has(ev.id)) continue;
       out.push(ev);

@@ -4,9 +4,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   LuncAdapterError,
+  crawlFcdAccountTxs,
   crawlWithdrawRewardTxs,
   denomToAsset,
   estimateHeightAt,
+  fcdCandidates,
+  fcdTxToLcdShape,
   fetchLuncStakeEarnEvents,
   luncHistoryChunks,
   microToHuman,
@@ -14,6 +17,7 @@ import {
   normalizeWithdrawRewardTx,
   normalizeWithdrawRewardTxs,
   parseCoinList,
+  parseLowestHeightMessage,
   parseLuncAddress,
 } from "../../web/src/lib/adapters/lunc-stake";
 import { CEX_TRANSPORT_MAX_SPAN_MS } from "../../web/src/lib/sync-range";
@@ -295,6 +299,7 @@ describe("LUNC (Terra Classic) stake adapter", () => {
         height: 29_550_000,
         timeMs: Date.parse("2026-07-18T00:00:00Z"),
       },
+      historySource: "lcd",
     });
     expect(events.every((e) => e.rawType === "withdraw_delegator_reward")).toBe(
       true,
@@ -846,6 +851,7 @@ describe("LUNC (Terra Classic) stake adapter", () => {
         startMs: Date.now() - 1000,
         endMs: Date.now(),
         includePending: false,
+        historySource: "lcd",
       }),
     ).rejects.toThrow(/Malformed latest block/);
 
@@ -1114,6 +1120,7 @@ describe("LUNC (Terra Classic) stake adapter", () => {
         startMs: Date.now() - 1000,
         endMs: Date.now(),
         includePending: false,
+        historySource: "lcd",
       }),
     ).rejects.toThrow(/Malformed latest block/);
 
@@ -1130,6 +1137,7 @@ describe("LUNC (Terra Classic) stake adapter", () => {
         startMs: Date.now() - 1000,
         endMs: Date.now(),
         includePending: false,
+        historySource: "lcd",
       }),
     ).rejects.toThrow(/Malformed latest block/);
 
@@ -1270,5 +1278,245 @@ describe("LUNC (Terra Classic) stake adapter", () => {
     expect(setTimeoutSpy).toHaveBeenCalled();
     setTimeoutSpy.mockRestore();
     process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+  });
+
+  it("fcdTxToLcdShape flattens logs and parseLowestHeightMessage works", () => {
+    const shaped = fcdTxToLcdShape({
+      txhash: "ABC",
+      timestamp: "2026-01-01T00:00:00Z",
+      logs: [
+        {
+          events: [
+            {
+              type: "withdraw_rewards",
+              attributes: [{ key: "amount", value: "1uluna" }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(shaped.events).toHaveLength(1);
+    expect(shaped.events?.[0]?.type).toBe("withdraw_rewards");
+    expect(() => fcdTxToLcdShape(null as never)).toThrow(LuncAdapterError);
+    expect(parseLowestHeightMessage('lowest height is 28062898')).toBe(
+      28062898,
+    );
+    expect(parseLowestHeightMessage("nope")).toBeNull();
+    expect(fcdCandidates("https://fcd.a").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("crawlFcdAccountTxs paginates offset and normalizes autostake withdraws", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    const page1 = load("fcd-txs-sample.json");
+    const page2 = {
+      next: null,
+      limit: 100,
+      txs: [
+        {
+          txhash: "FCDHASHOLDABCDEF0123456789ABCDEF0123456789ABCDEF0123456789AB",
+          height: "20000000",
+          code: 0,
+          timestamp: "2024-06-01T00:00:00Z",
+          logs: [
+            {
+              events: [
+                {
+                  type: "withdraw_rewards",
+                  attributes: [
+                    { key: "amount", value: "1000000uluna" },
+                    {
+                      key: "validator",
+                      value: "terravaloper1autostake",
+                    },
+                    { key: "delegator", value: ADDR },
+                    { key: "msg_index", value: "0" },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const fetchImpl = vi.fn(async (url: string) => {
+      const u = String(url);
+      expect(u).toContain("/v1/txs");
+      expect(u).toContain(`account=${ADDR}`);
+      if (u.includes("offset=")) {
+        return { ok: true, json: async () => page2 };
+      }
+      return { ok: true, json: async () => page1 };
+    });
+
+    const txs = await crawlFcdAccountTxs(ADDR, {
+      fcdUrl: "https://fcd.example",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      startMs: Date.parse("2024-01-01T00:00:00Z"),
+      endMs: Date.parse("2026-07-01T00:00:00Z"),
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const events = normalizeWithdrawRewardTxs(ADDR, txs);
+    // page1 has 2 withdraw txs (3 denoms) + page2 has 1 — send-only ignored
+    expect(events.length).toBe(4);
+    expect(events.every((e) => e.meta?.kind === "claimed")).toBe(true);
+    expect(events.some((e) => e.amount === "5")).toBe(true);
+    expect(events.some((e) => e.earnedAt.startsWith("2024-06"))).toBe(true);
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+  });
+
+  it("crawlFcdAccountTxs early-stops when page is older than startMs", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        next: 99,
+        txs: [
+          {
+            txhash: "OLD1",
+            timestamp: "2023-01-01T00:00:00Z",
+            logs: [],
+          },
+          {
+            txhash: "OLD2",
+            timestamp: "2023-01-02T00:00:00Z",
+            logs: [],
+          },
+        ],
+      }),
+    }));
+    const txs = await crawlFcdAccountTxs(ADDR, {
+      fcdUrl: "https://fcd.example",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      startMs: Date.parse("2025-01-01T00:00:00Z"),
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(txs).toHaveLength(2);
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+  });
+
+  it("fetchLuncStakeEarnEvents prefers FCD history over LCD", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    process.env.LUNC_FCD_FALLBACKS = "";
+    const fcd = load("fcd-txs-sample.json");
+    const rewards = load("rewards-sample.json");
+    const nowMs = Date.parse("2026-07-18T00:00:00Z");
+    const fetchImpl = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/v1/txs")) {
+        return {
+          ok: true,
+          json: async () => ({ ...fcd, next: null }),
+        };
+      }
+      if (u.includes("/rewards")) {
+        return { ok: true, json: async () => rewards };
+      }
+      // LCD history must not be required when FCD works
+      if (u.includes("/cosmos/tx/v1beta1/txs")) {
+        throw new Error("LCD history should not be called");
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+
+    const events = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.example",
+      lcdUrl: "https://lcd.example",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      startMs: Date.parse("2024-01-01T00:00:00Z"),
+      endMs: nowMs,
+      nowMs,
+      includePending: true,
+    });
+    const claimed = events.filter((e) => e.rawType === "withdraw_delegator_reward");
+    const pending = events.filter((e) => e.rawType === "pending_total_reward");
+    expect(claimed.length).toBe(3);
+    expect(pending.length).toBe(2);
+    expect(
+      claimed.some((e) => e.meta?.txhash?.startsWith("FCDHASH0001")),
+    ).toBe(true);
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+    delete process.env.LUNC_FCD_FALLBACKS;
+  });
+
+  it("fetchLuncStakeEarnEvents falls back to LCD when FCD is down", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    process.env.LUNC_FCD_FALLBACKS = "";
+    process.env.LUNC_LCD_FALLBACKS = "";
+    const withdraw = load("withdraw-txs-sample.json");
+    const nowMs = Date.parse("2026-07-18T00:00:00Z");
+    const fetchImpl = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/v1/txs")) {
+        return { ok: false, status: 503, text: async () => "unavailable" };
+      }
+      if (u.includes("/blocks/latest")) {
+        return {
+          ok: true,
+          json: async () => ({
+            block: {
+              header: {
+                height: "29550000",
+                time: new Date(nowMs).toISOString(),
+              },
+            },
+          }),
+        };
+      }
+      if (u.includes("/blocks/1")) {
+        return {
+          ok: false,
+          status: 500,
+          text: async () =>
+            JSON.stringify({ message: "height 1 is not available, lowest height is 28000000" }),
+        };
+      }
+      if (u.includes("/cosmos/tx/v1beta1/txs")) {
+        if (u.includes("page=1")) {
+          return { ok: true, json: async () => withdraw };
+        }
+        return { ok: true, json: async () => ({ tx_responses: [] }) };
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+
+    const events = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.example",
+      lcdUrl: "https://lcd.example",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      startMs: Date.parse("2026-06-01T00:00:00Z"),
+      endMs: nowMs,
+      nowMs,
+      includePending: false,
+      latestBlock: { height: 29_550_000, timeMs: nowMs },
+    });
+    expect(events.some((e) => e.rawType === "withdraw_delegator_reward")).toBe(
+      true,
+    );
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+    delete process.env.LUNC_FCD_FALLBACKS;
+    delete process.env.LUNC_LCD_FALLBACKS;
+  });
+
+  it("crawlFcdAccountTxs fails closed on HTTP and malformed payloads", async () => {
+    await expect(
+      crawlFcdAccountTxs(ADDR, {
+        fcdUrl: "https://fcd.example",
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: false,
+          status: 502,
+          text: async () => "",
+        }) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/FCD HTTP 502/);
+
+    await expect(
+      crawlFcdAccountTxs(ADDR, {
+        fcdUrl: "https://fcd.example",
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ txs: null }),
+        }) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/Malformed FCD/);
   });
 });

@@ -17,7 +17,7 @@ YieldScope syncs **earn-only** streams (not full portfolios) into one dashboard,
 | Binance | Simple Earn rewards / interest history |
 | OKX | Savings / earn history |
 | Monad | Staking unclaimed + accrued rewards via precompile `0x1000` |
-| LUNC | Terra Classic pending staking rewards via public LCD |
+| LUNC | Terra Classic claimed staking rewards (FCD account history / autostake withdraws) + current pending via LCD |
 
 No Zerion sprawl. No tax engine. No APY farm browser.
 
@@ -36,7 +36,8 @@ Dashboard sync supports **All time** (full available CEX history) or a **custom 
 | Source | Sync / persist | Display |
 |--------|----------------|---------|
 | Binance / OKX | History fetched for the selected window. Custom → merge-replace inside the window (rows outside are kept). All-time first run or “Re-download full history” → full replace. Later All-time → incremental upsert from high-water. | Full persisted ledger (picker is **not** a view filter) |
-| Monad / LUNC | Point-in-time pending rewards — **date range ignored**; always full-replace snapshot | Current pending rows (`earnedAt` = sync time) |
+| Monad | Point-in-time pending rewards — **date range ignored**; always full-replace snapshot | Current pending rows (`earnedAt` = sync time) |
+| LUNC | Claimed `withdraw_rewards` / autostake history for the selected window (FCD; LCD fallback ~100d prune) + current pending when the range reaches today | Claimed rows at tx time + pending snapshot (`earnedAt` = sync time) |
 
 Last-used window preference is stored in the browser (`localStorage`).
 
