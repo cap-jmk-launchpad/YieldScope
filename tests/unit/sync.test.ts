@@ -465,10 +465,25 @@ describe("sync with persistence", () => {
       "fetch",
       vi.fn().mockRejectedValue("plain-string-failure"),
     );
-    const { syncBinance } = await import("../../web/src/lib/sync");
+    const { syncBinance, userFacingAdapterError } = await import(
+      "../../web/src/lib/sync"
+    );
     const result = await syncBinance(dummyCex, { userId: "u1" });
     expect(result.status).toBe("error");
     expect(result.error).toBe("plain-string-failure");
+    // Untyped exchange / auth hints must stay verbatim (not scrubbed to fallback).
+    expect(
+      userFacingAdapterError(new Error("OKX HTTP 401: nope"), "FALLBACK"),
+    ).toBe("OKX HTTP 401: nope");
+    expect(
+      userFacingAdapterError(new Error("error 50119 on region"), "FALLBACK"),
+    ).toBe("error 50119 on region");
+    expect(
+      userFacingAdapterError(new Error("Please re-save passphrase"), "FALLBACK"),
+    ).toBe("Please re-save passphrase");
+    expect(
+      userFacingAdapterError(new Error("LCD eth_call failed"), "FALLBACK"),
+    ).toBe("FALLBACK");
     vi.unstubAllGlobals();
   });
 });

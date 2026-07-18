@@ -135,7 +135,7 @@ describe("OKX earn adapter", () => {
 
   it("falls back from sticky www to EEA on 50119 and clears sticky", async () => {
     // First establish sticky www via a successful www response, then flip to 50119.
-    let phase: "seed" | "fail" = "seed";
+    let phase: "seed" | "fail401" = "seed";
     const fetchMock = vi.fn(async (url: string) => {
       const u = String(url);
       if (phase === "seed" && u.startsWith("https://eea.okx.com")) {
@@ -152,7 +152,7 @@ describe("OKX earn adapter", () => {
           json: async () => load("lending-empty.json"),
         };
       }
-      if (phase === "fail" && u.startsWith("https://www.okx.com")) {
+      if (phase === "fail401" && u.startsWith("https://www.okx.com")) {
         return {
           ok: false,
           status: 401,
@@ -160,7 +160,7 @@ describe("OKX earn adapter", () => {
             JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
         };
       }
-      if (phase === "fail" && u.startsWith("https://eea.okx.com")) {
+      if (phase === "fail401" && u.startsWith("https://eea.okx.com")) {
         return {
           ok: true,
           json: async () => load("lending-history.json"),
@@ -185,13 +185,57 @@ describe("OKX earn adapter", () => {
     });
     expect(resolveOkxApiBases()[0]).toBe("https://www.okx.com");
 
-    phase = "fail";
+    phase = "fail401";
     const events = await fetchOkxEarnEvents({
       apiKey: "k",
       apiSecret: "s",
       passphrase: "p",
     });
     expect(events).toHaveLength(2);
+    expect(resolveOkxApiBases()[0]).toBe("https://eea.okx.com");
+
+    // Re-seed sticky www, then clear via 2xx+50119 (distinct from HTTP 401 path).
+    phase = "seed";
+    await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(resolveOkxApiBases()[0]).toBe("https://www.okx.com");
+
+    const fetch2xx = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.startsWith("https://www.okx.com")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            code: "50119",
+            msg: "API key doesn't exist",
+            data: [],
+          }),
+        };
+      }
+      if (u.startsWith("https://eea.okx.com")) {
+        return {
+          ok: true,
+          json: async () => load("lending-history.json"),
+        };
+      }
+      return {
+        ok: false,
+        status: 401,
+        text: async () =>
+          JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
+      };
+    });
+    vi.stubGlobal("fetch", fetch2xx);
+    const cleared = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(cleared).toHaveLength(2);
     expect(resolveOkxApiBases()[0]).toBe("https://eea.okx.com");
   });
 
@@ -385,9 +429,9 @@ describe("OKX earn adapter", () => {
     delete process.env.OKX_API_BASE;
     resetOkxBaseCache();
 
-    // Network error on www → try eea → success
+    // Network error on EEA (first base) → try next region → success
     const fetchMock = vi.fn(async (url: string) => {
-      if (String(url).startsWith("https://www.okx.com")) {
+      if (String(url).startsWith("https://eea.okx.com")) {
         throw new Error("ECONNRESET");
       }
       return {
@@ -399,6 +443,7 @@ describe("OKX earn adapter", () => {
     await expect(
       fetchOkxEarnEvents({ apiKey: "k", apiSecret: "s", passphrase: "p" }),
     ).resolves.toEqual([]);
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
 
     // Missing key/secret/passphrase (no accessToken)
     await expect(

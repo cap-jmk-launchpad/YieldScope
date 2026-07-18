@@ -133,11 +133,9 @@ export function splitCustomRangeForTransport(
     from: normalizeDateInput(from),
     to: normalizeDateInput(to),
   });
-  if (window.fromMs == null || window.toMs == null) {
-    return [{ mode: "custom", from, to }];
-  }
+  // resolveSyncRange always materializes numeric bounds for custom mode.
   // Reuse Binance-style chunking (newest-first), then reverse for UX/progress.
-  const chunks = chunkTimeRange(window.fromMs, window.toMs, maxSpanMs);
+  const chunks = chunkTimeRange(window.fromMs!, window.toMs!, maxSpanMs);
   return [...chunks].reverse().map((c) => ({
     mode: "custom" as const,
     from: dateOnlyUtc(c.startMs),
@@ -158,11 +156,7 @@ export function syncRangesForSource(
   const from = normalizeDateInput(range.from);
   const to = normalizeDateInput(range.to);
   const window = resolveSyncRange({ mode: "custom", from, to });
-  if (
-    window.fromMs == null ||
-    window.toMs == null ||
-    window.toMs - window.fromMs <= CEX_TRANSPORT_MAX_SPAN_MS
-  ) {
+  if (window.toMs! - window.fromMs! <= CEX_TRANSPORT_MAX_SPAN_MS) {
     return [{ mode: "custom", from, to }];
   }
   return splitCustomRangeForTransport(from, to);

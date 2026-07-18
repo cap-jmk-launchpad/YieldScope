@@ -81,6 +81,17 @@ describe("sync-range", () => {
         to: "2026-07-18",
       }).length,
     ).toBeGreaterThan(10);
+    // Short CEX custom range stays a single transport window
+    expect(
+      syncRangesForSource("binance", {
+        mode: "custom",
+        from: "2024-07-01",
+        to: "2024-07-15",
+      }),
+    ).toEqual([{ mode: "custom", from: "2024-07-01", to: "2024-07-15" }]);
+    expect(
+      syncRangesForSource("okx", { mode: "all" }),
+    ).toEqual([{ mode: "all" }]);
   });
 
   it("rejects inverted or incomplete custom ranges", () => {
