@@ -302,6 +302,30 @@
   cursor: not-allowed;
 }
 
+.dash .table-pager-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.dash .table-pager-size-label {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.dash .table-pager-size select {
+  background: color-mix(in oklab, var(--ink) 88%, var(--paper));
+  color: var(--paper);
+  border: 1px solid color-mix(in oklab, var(--muted) 40%, transparent);
+  padding: 0.3rem 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
 .dash table {
   width: 100%;
   border-collapse: collapse;

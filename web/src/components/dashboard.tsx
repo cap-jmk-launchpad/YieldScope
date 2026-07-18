@@ -12,9 +12,12 @@ import {
 } from "@/lib/prices/missing-symbols";
 import type { SyncRange, SyncRangeMode } from "@/lib/sync-range";
 import {
-  DEFAULT_ASSETS_PAGE_SIZE,
-  DEFAULT_EVENTS_PAGE_SIZE,
+  DEFAULT_PAGE_SIZE,
+  loadPageSizeFromStorage,
   paginateItems,
+  parsePageSize,
+  savePageSizeToStorage,
+  type PageSizeOption,
 } from "@/lib/table-pagination";
 import {
   DISPLAY_CURRENCIES,
@@ -137,6 +140,8 @@ export function Dashboard({
   const [missingAssets, setMissingAssets] = useState<string[]>([]);
   const [eventsPage, setEventsPage] = useState(1);
   const [assetsPage, setAssetsPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(DEFAULT_PAGE_SIZE);
+  const [pageSizeReady, setPageSizeReady] = useState(false);
   const { address, chainId } = useAccount();
 
   useEffect(() => {
@@ -145,6 +150,8 @@ export function Dashboard({
     setFromDate(saved.from);
     setToDate(saved.to);
     setCurrency(loadDisplayCurrencyFromStorage(window.localStorage));
+    setPageSize(loadPageSizeFromStorage(window.localStorage));
+    setPageSizeReady(true);
   }, []);
 
   useEffect(() => {
@@ -163,6 +170,17 @@ export function Dashboard({
     if (displayCurrencyProp) return;
     saveDisplayCurrencyToStorage(currency, window.localStorage);
   }, [currency, displayCurrencyProp]);
+
+  useEffect(() => {
+    if (!pageSizeReady) return;
+    savePageSizeToStorage(pageSize, window.localStorage);
+  }, [pageSize, pageSizeReady]);
+
+  const handlePageSizeChange = useCallback((size: PageSizeOption) => {
+    setPageSize(parsePageSize(size));
+    setEventsPage(1);
+    setAssetsPage(1);
+  }, []);
 
   const refreshRates = useCallback(async () => {
     try {
@@ -316,12 +334,12 @@ export function Dashboard({
   const eventRows = ledger?.events ?? [];
 
   const assetsSlice = useMemo(
-    () => paginateItems(byAssetRows, assetsPage, DEFAULT_ASSETS_PAGE_SIZE),
-    [byAssetRows, assetsPage],
+    () => paginateItems(byAssetRows, assetsPage, pageSize),
+    [byAssetRows, assetsPage, pageSize],
   );
   const eventsSlice = useMemo(
-    () => paginateItems(eventRows, eventsPage, DEFAULT_EVENTS_PAGE_SIZE),
-    [eventRows, eventsPage],
+    () => paginateItems(eventRows, eventsPage, pageSize),
+    [eventRows, eventsPage, pageSize],
   );
 
   // Keep page in range when filters / sync shrink the list.
@@ -497,7 +515,7 @@ export function Dashboard({
         displayCurrency={chartDisplayCurrency}
       />
 
-      {ledger?.aggregates?.byAsset && ledger.aggregates.byAsset.length > 0 ? (
+      {byAssetRows.length > 0 ? (
         <div className="table-wrap">
           <table>
             <thead>
@@ -510,7 +528,7 @@ export function Dashboard({
               </tr>
             </thead>
             <tbody>
-              {ledger.aggregates.byAsset.map((a) => {
+              {assetsSlice.items.map((a) => {
                 const converted = convertNative(
                   Number(a.totalAmount),
                   a.asset,
@@ -533,6 +551,17 @@ export function Dashboard({
               })}
             </tbody>
           </table>
+          <TablePager
+            label="By asset"
+            page={assetsSlice.page}
+            totalPages={assetsSlice.totalPages}
+            from={assetsSlice.from}
+            to={assetsSlice.to}
+            total={assetsSlice.total}
+            pageSize={pageSize}
+            onPageChange={setAssetsPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
         </div>
       ) : null}
 
@@ -548,7 +577,7 @@ export function Dashboard({
             </tr>
           </thead>
           <tbody>
-            {(ledger?.events ?? []).length === 0 ? (
+            {eventRows.length === 0 ? (
               <tr>
                 <td colSpan={5} className="empty">
                   No earnings yet. Connect Binance, OKX, or a Monad wallet, then
@@ -556,7 +585,7 @@ export function Dashboard({
                 </td>
               </tr>
             ) : (
-              ledger!.events.map((e) => {
+              eventsSlice.items.map((e) => {
                 const converted = convertNative(
                   Number(e.amount),
                   e.asset,
@@ -580,6 +609,17 @@ export function Dashboard({
             )}
           </tbody>
         </table>
+        <TablePager
+          label="Events"
+          page={eventsSlice.page}
+          totalPages={eventsSlice.totalPages}
+          from={eventsSlice.from}
+          to={eventsSlice.to}
+          total={eventsSlice.total}
+          pageSize={pageSize}
+          onPageChange={setEventsPage}
+          onPageSizeChange={handlePageSizeChange}
+        />
       </div>
     </div>
   );
