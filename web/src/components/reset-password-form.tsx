@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   establishRecoverySession,
   recoveryErrorMessage,
@@ -11,10 +11,12 @@ import {
   createResetPasswordClient,
   isSupabaseConfigured,
 } from "@/lib/supabase/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export function ResetPasswordForm() {
   const router = useRouter();
   const configured = isSupabaseConfigured();
+  const clientRef = useRef<SupabaseClient | null>(null);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +35,7 @@ export function ResetPasswordForm() {
     void (async () => {
       try {
         const supabase = createResetPasswordClient();
+        clientRef.current = supabase;
         const result = await establishRecoverySession(supabase, href);
 
         if (
@@ -92,14 +95,19 @@ export function ResetPasswordForm() {
 
     setBusy(true);
     try {
-      const supabase = createResetPasswordClient();
+      // Reuse the same browser client that established the recovery session
+      // so updateUser cannot race a fresh client with empty cookies.
+      const supabase = clientRef.current ?? createResetPasswordClient();
       const { error: authError } = await supabase.auth.updateUser({ password });
       if (authError) {
         setError(authError.message);
         return;
       }
-      setInfo("Password updated. Redirecting to your dashboard…");
-      router.push("/app?password_updated=1");
+      // Force an explicit password login so a bad update cannot leave the
+      // user "signed in" with a password that later fails at /token.
+      await supabase.auth.signOut();
+      setInfo("Password updated. Sign in with your new password…");
+      router.push("/login?password_updated=1");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Update failed");
@@ -118,7 +126,7 @@ export function ResetPasswordForm() {
     <form className="auth-form" onSubmit={onSubmit}>
       <h1>Choose new password</h1>
       <p className="lede">
-        Set a new password for your account. You&apos;ll stay signed in afterward.
+        Set a new password for your account. You&apos;ll sign in with it next.
       </p>
 
       {!configured ? (

@@ -28,6 +28,11 @@ pnpm --dir web install
 pnpm test
 pnpm test:contracts   # requires forge on PATH
 
+# Auth E2E against prod (or E2E_BASE_URL) + yieldscope-mail maildir
+# Needs kubectl + KUBECONFIG (~/.kube/config-homelab) and Chromium once:
+pnpm test:e2e:auth:install
+pnpm test:e2e:auth
+
 # Fixture smoke
 pnpm test:smoke
 

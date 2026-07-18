@@ -14,10 +14,15 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/app";
   const callbackError = authCallbackErrorMessage(searchParams.get("error"));
+  const passwordUpdated = searchParams.get("password_updated") === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(
+    passwordUpdated && mode === "login"
+      ? "Password updated. Sign in with your new password."
+      : null,
+  );
   const [busy, setBusy] = useState(false);
   const displayError = error ?? callbackError;
   const configured = isSupabaseConfigured();

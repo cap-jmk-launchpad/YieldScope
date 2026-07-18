@@ -59,6 +59,12 @@ if [[ -z "${MAIL_HASH:-}" ]]; then
   MAIL_HASH="$(ssh -o BatchMode=yes engine "openssl passwd -6 '$MAIL_PASS'" | tr -d '\r')"
 fi
 
+# Preserve E2E mailbox password across rewrites of this file
+EXISTING_E2E_PASS=""
+if [[ -f "$PASS_FILE" ]] && grep -q '^E2E_SMTP_PASS=' "$PASS_FILE"; then
+  EXISTING_E2E_PASS="$(grep '^E2E_SMTP_PASS=' "$PASS_FILE" | head -1 | cut -d= -f2- | tr -d '\r')"
+fi
+
 # Quote hash so $6$... is not expanded if file is ever sourced
 {
   printf 'SMTP_PASS=%s\n' "$MAIL_PASS"
@@ -67,9 +73,21 @@ fi
 chmod 600 "$PASS_FILE" 2>/dev/null || true
 echo "Mailbox password stored in $PASS_FILE (not committed)"
 
-accounts_line="${MAILBOX}|{SHA512-CRYPT}${MAIL_HASH}"
+# Primary SMTP identity (GoTrue) + E2E catch mailbox (plus-addressing: e2e+tag@…)
+E2E_MAILBOX="${E2E_MAILBOX:-e2e@yieldscope.d3bu7.com}"
+if [[ -n "$EXISTING_E2E_PASS" ]]; then
+  E2E_PASS="$EXISTING_E2E_PASS"
+else
+  E2E_PASS="$(openssl rand -base64 24 | tr -d '/+=' | head -c 28)"
+fi
+printf 'E2E_SMTP_PASS=%s\n' "$E2E_PASS" >>"$PASS_FILE"
+E2E_HASH="$(ssh -o BatchMode=yes engine "openssl passwd -6 '$E2E_PASS'" | tr -d '\r')"
+
 accounts_file="$tmpdir/postfix-accounts.cf"
-printf '%s\n' "$accounts_line" >"$accounts_file"
+{
+  printf '%s\n' "${MAILBOX}|{SHA512-CRYPT}${MAIL_HASH}"
+  printf '%s\n' "${E2E_MAILBOX}|{SHA512-CRYPT}${E2E_HASH}"
+} >"$accounts_file"
 
 kubectl -n "$NS" create secret generic yieldscope-mail-accounts \
   --from-file=postfix-accounts.cf="$accounts_file" \
@@ -79,6 +97,11 @@ kubectl -n "$NS" create secret generic yieldscope-mail-mailbox \
   --from-literal=MAILBOX_ADDRESS="$MAILBOX" \
   --from-literal=MAILBOX_PASSWORD="$MAIL_PASS" \
   --from-literal=MAIL_HOSTNAME="$MAIL_HOST" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n "$NS" create secret generic yieldscope-mail-e2e \
+  --from-literal=MAILBOX_ADDRESS="$E2E_MAILBOX" \
+  --from-literal=MAILBOX_PASSWORD="$E2E_PASS" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "==> rollout mail"

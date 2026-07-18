@@ -6,7 +6,8 @@ Self-hosted [docker-mailserver](https://docker-mailserver.github.io/docker-mails
 | Item | Value |
 |------|-------|
 | Hostname | `mail.yieldscope.d3bu7.com` |
-| Mailbox | `noreply@yieldscope.d3bu7.com` |
+| Mailbox | `noreply@yieldscope.d3bu7.com` (SMTP for GoTrue) |
+| E2E mailbox | `e2e@yieldscope.d3bu7.com` (plus-addressing: `e2e+tag@…` → same INBOX) |
 | ClusterIP | `10.43.250.25` (fixed — used by GoTrue `hostAliases`) |
 | Submission | `:587` STARTTLS (auth required; not an open relay) |
 | NodePorts (LAN/test) | `30625` (25), `30687` (587), `30693` (993) |
@@ -31,7 +32,19 @@ bash deploy/scripts/setup-yieldscope-supabase-smtp.sh
 ```bash
 kubectl -n yieldscope-mail get secret yieldscope-mail-mailbox \
   -o jsonpath='{.data.MAILBOX_PASSWORD}' | base64 -d; echo
+
+# E2E inbox (Auth Playwright reads maildir via kubectl; IMAP optional)
+kubectl -n yieldscope-mail get secret yieldscope-mail-e2e \
+  -o jsonpath='{.data.MAILBOX_PASSWORD}' | base64 -d; echo
 ```
+
+## Auth E2E (`pnpm test:e2e:auth`)
+
+Uses `e2e+<stamp>@yieldscope.d3bu7.com`, waits for mail under
+`/var/mail/yieldscope.d3bu7.com/e2e/new/`, asserts DKIM/`noreply@yieldscope.d3bu7.com`,
+then exercises `/login` → `/app` and `/api/ledger`. Requires
+`KUBECONFIG` (default `~/.kube/config-homelab`) and optional
+`E2E_BASE_URL` / `E2E_SUPABASE_*`.
 
 ## Notes
 

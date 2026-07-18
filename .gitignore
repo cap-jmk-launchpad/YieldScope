@@ -11,8 +11,12 @@ contracts/broadcast/
 web/.env.local
 **/.env
 !**/.env.example
+.env.*.tmp
 deploy/env/
 deploy/k8s/yieldscope-mail/dkim-public.txt
+test-results/
+playwright-report/
+blob-report/
 
 # Next
 web/.next/
