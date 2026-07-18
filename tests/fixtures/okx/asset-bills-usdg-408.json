@@ -1,0 +1,15 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {
+      "billId": "usdg-408-1",
+      "ccy": "USDG",
+      "balChg": "0.08",
+      "bal": "100.08",
+      "type": "408",
+      "ts": "1735776000000",
+      "notes": "Auto earn USDG interest"
+    }
+  ]
+}

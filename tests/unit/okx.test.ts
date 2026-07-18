@@ -9,6 +9,7 @@ import {
   accountBillToEarnEvent,
   fetchOkxEarnEvents,
   formatOkxApiError,
+  lendingInterestAmount,
   normalizeOkxAccountEarnBills,
   normalizeOkxAssetBills,
   normalizeOkxEarn,
@@ -756,5 +757,588 @@ describe("OKX earn adapter", () => {
         String(c[0]).includes("ccy=USDT"),
       ),
     ).toBe(true);
+  });
+
+  it("uses legacy amt when earnings key is absent (fail-closed on empty/non-positive)", () => {
+    expect(
+      lendingInterestAmount({ ccy: "USDT", amt: "1.5", ts: "1" }),
+    ).toBe("1.5");
+    expect(
+      lendingInterestAmount({ ccy: "USDT", amt: "", ts: "1" }),
+    ).toBeNull();
+    expect(
+      lendingInterestAmount({ ccy: "USDT", amt: undefined, ts: "1" }),
+    ).toBeNull();
+    expect(
+      lendingInterestAmount({ ccy: "USDT", amt: "0", ts: "1" }),
+    ).toBeNull();
+    expect(
+      lendingInterestAmount({ ccy: "USDT", amt: "nope", ts: "1" }),
+    ).toBeNull();
+    expect(
+      lendingInterestAmount({ ccy: "USDT", earnings: null, ts: "1" }),
+    ).toBeNull();
+    expect(
+      normalizeOkxEarn({
+        code: "0",
+        data: [{ ccy: "BTC", amt: "0.01", ts: "1719792000000", type: "1" }],
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("fails closed on malformed asset bills and API error payloads", () => {
+    expect(() =>
+      assetBillToEarnEvent({
+        type: "400",
+        ccy: "",
+        balChg: "1",
+        ts: "1",
+      }),
+    ).toThrow(/Malformed OKX asset bill/);
+    expect(() =>
+      assetBillToEarnEvent({
+        type: "400",
+        ccy: "USDT",
+        balChg: "1",
+        ts: "",
+      }),
+    ).toThrow(/Malformed OKX asset bill/);
+    expect(
+      assetBillToEarnEvent({
+        type: "400",
+        ccy: "USDT",
+        balChg: "NaN",
+        ts: "1",
+      }),
+    ).toBeNull();
+    expect(
+      assetBillToEarnEvent({
+        type: "408",
+        ccy: "USDG",
+        balChg: "0.08",
+        ts: "1735776000000",
+      }),
+    ).toMatchObject({ rawType: "ASSET_BILL_408", amount: "0.08" });
+    // billId fallback when omitted
+    expect(
+      assetBillToEarnEvent({
+        type: "400",
+        ccy: "USDT",
+        balChg: "1",
+        ts: "99",
+      })?.id,
+    ).toBe("okx:bill:99:USDT:1:400");
+    expect(() =>
+      normalizeOkxAssetBills({ code: "50000", msg: "bills down", data: [] }),
+    ).toThrow(/bills down/);
+    expect(() =>
+      normalizeOkxAccountEarnBills({
+        code: "50001",
+        msg: "acct down",
+        data: [],
+      }),
+    ).toThrow(/acct down/);
+    expect(
+      accountBillToEarnEvent({
+        ccy: "USDT",
+        ts: "10",
+        earnAmt: "0.5",
+      })?.id,
+    ).toBe("okx:acct:10:USDT:0.5");
+    expect(
+      accountBillToEarnEvent({
+        ccy: "USDT",
+        ts: "10",
+        earnAmt: "0",
+      }),
+    ).toBeNull();
+    expect(
+      accountBillToEarnEvent({
+        ccy: "USDT",
+        ts: "10",
+        earnAmt: "x",
+      }),
+    ).toBeNull();
+    expect(
+      accountBillToEarnEvent({
+        ccy: "",
+        ts: "10",
+        earnAmt: "1",
+      }),
+    ).toBeNull();
+  });
+
+  it("merges USDG auto-earn type 408 asset bills", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    const fetchMock = okxFetchRouter({
+      "lending-history": load("lending-empty.json"),
+      "savings/balance": load("lending-empty.json"),
+      "asset/bills": load("asset-bills-usdg-408.json"),
+      "asset/bills-history": load("lending-empty.json"),
+      "account/bills": load("lending-empty.json"),
+      "account/bills-archive": load("lending-empty.json"),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].rawType).toBe("ASSET_BILL_408");
+    expect(
+      fetchMock.mock.calls.some((c) => String(c[0]).includes("type=408")),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(
+        (c) =>
+          String(c[0]).includes("bills-history") &&
+          String(c[0]).includes("pagingType=1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails closed when streams empty but balance shows cumulative earnings only", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": load("savings-balance-earnings-only.json"),
+        "asset/bills": load("lending-empty.json"),
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": load("lending-empty.json"),
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "k",
+        apiSecret: "s",
+        passphrase: "p",
+      }),
+    ).rejects.toThrow(/no interest history.*savings balance/i);
+  });
+
+  it("throws when asset bills API returns non-zero code mid-fetch", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": load("lending-empty.json"),
+        "asset/bills": { code: "51000", msg: "asset bills failed", data: [] },
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": load("lending-empty.json"),
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "k",
+        apiSecret: "s",
+        passphrase: "p",
+      }),
+    ).rejects.toThrow(/asset bills failed/);
+  });
+
+  it("throws when account bills API returns non-zero code mid-fetch", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": load("lending-empty.json"),
+        "asset/bills": load("lending-empty.json"),
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": {
+          code: "51001",
+          msg: "account bills failed",
+          data: [],
+        },
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "k",
+        apiSecret: "s",
+        passphrase: "p",
+      }),
+    ).rejects.toThrow(/account bills failed/);
+  });
+
+  it("paginates asset bills by timestamp and stops on stuck after cursor", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    const baseTs = 1_722_470_400_000;
+    const fullPage = {
+      code: "0",
+      data: Array.from({ length: 100 }, (_, i) => ({
+        billId: `b${i}`,
+        ccy: "USDT",
+        balChg: "0.01",
+        type: "400",
+        ts: String(baseTs + i),
+      })),
+    };
+    let assetBillPages = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("asset/bills?") && u.includes("type=400")) {
+        assetBillPages += 1;
+        return { ok: true, json: async () => fullPage };
+      }
+      return { ok: true, json: async () => load("lending-empty.json") };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events.length).toBe(100);
+    expect(assetBillPages).toBeGreaterThanOrEqual(2);
+    const afterUrls = fetchMock.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes("asset/bills?") && u.includes("after="));
+    expect(afterUrls.length).toBeGreaterThanOrEqual(1);
+    expect(afterUrls[0]).toContain(`after=${baseTs + 99}`);
+  });
+
+  it("stops asset-bill pagination once past startMs (skip_old)", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    const startMs = Date.parse("2024-08-01T00:00:00.000Z");
+    const endMs = Date.parse("2024-08-31T00:00:00.000Z");
+    const page = {
+      code: "0",
+      data: [
+        {
+          billId: "new",
+          ccy: "USDT",
+          balChg: "1",
+          type: "400",
+          ts: String(Date.parse("2024-09-01T00:00:00.000Z")),
+        },
+        {
+          billId: "in-window",
+          ccy: "USDT",
+          balChg: "2",
+          type: "400",
+          ts: String(Date.parse("2024-08-15T00:00:00.000Z")),
+        },
+        {
+          billId: "old",
+          ccy: "USDT",
+          balChg: "3",
+          type: "400",
+          ts: String(Date.parse("2024-07-01T00:00:00.000Z")),
+        },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": load("lending-empty.json"),
+        "asset/bills": page,
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": load("lending-empty.json"),
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+    const events = await fetchOkxEarnEvents(
+      { apiKey: "k", apiSecret: "s", passphrase: "p" },
+      { startMs, endMs },
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].id).toContain("in-window");
+  });
+
+  it("paginates account Auto Earn bills by billId and stops on stuck cursor", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    const baseTs = 1_722_729_600_000;
+    const fullPage = {
+      code: "0",
+      data: Array.from({ length: 100 }, (_, i) => ({
+        billId: `acct-${i}`,
+        ccy: "USDT",
+        ts: String(baseTs + i),
+        type: "381",
+        earnAmt: "0.01",
+      })),
+    };
+    let accountPages = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("account/bills?") && u.includes("type=381")) {
+        accountPages += 1;
+        return { ok: true, json: async () => fullPage };
+      }
+      return { ok: true, json: async () => load("lending-empty.json") };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events.length).toBe(100);
+    expect(accountPages).toBeGreaterThanOrEqual(2);
+    expect(
+      fetchMock.mock.calls.some(
+        (c) =>
+          String(c[0]).includes("account/bills?") &&
+          String(c[0]).includes("after=acct-99"),
+      ),
+    ).toBe(true);
+  });
+
+  it("stops account-bill pagination on skip_old and sparse earnAmt raw scan", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    const startMs = Date.parse("2024-08-01T00:00:00.000Z");
+    const endMs = Date.parse("2024-08-31T00:00:00.000Z");
+
+    // First: earnAmt rows that are skip_new / keep / skip_old
+    const earnPage = {
+      code: "0",
+      data: [
+        {
+          billId: "a-new",
+          ccy: "USDT",
+          ts: String(Date.parse("2024-09-01T00:00:00.000Z")),
+          type: "381",
+          earnAmt: "1",
+        },
+        {
+          billId: "a-keep",
+          ccy: "USDT",
+          ts: String(Date.parse("2024-08-10T00:00:00.000Z")),
+          type: "381",
+          earnAmt: "2",
+        },
+        {
+          billId: "a-old",
+          ccy: "USDT",
+          ts: String(Date.parse("2024-07-01T00:00:00.000Z")),
+          type: "381",
+          earnAmt: "3",
+        },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": load("lending-empty.json"),
+        "asset/bills": load("lending-empty.json"),
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": earnPage,
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+    const withEarn = await fetchOkxEarnEvents(
+      { apiKey: "k", apiSecret: "s", passphrase: "p" },
+      { startMs, endMs },
+    );
+    expect(withEarn).toHaveLength(1);
+    expect(withEarn[0].amount).toBe("2");
+
+    // Sparse earnAmt: empty interest but raw ts older than start → raw scan stop
+    const sparsePage = {
+      code: "0",
+      data: Array.from({ length: 100 }, (_, i) => ({
+        billId: `sparse-${i}`,
+        ccy: "USDT",
+        ts: String(Date.parse("2024-06-01T00:00:00.000Z") + i),
+        type: "381",
+        earnAmt: "",
+      })),
+    };
+    let archivePages = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("account/bills-archive")) {
+        archivePages += 1;
+        return { ok: true, json: async () => sparsePage };
+      }
+      if (u.includes("account/bills?")) {
+        return { ok: true, json: async () => load("lending-empty.json") };
+      }
+      return { ok: true, json: async () => load("lending-empty.json") };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const sparse = await fetchOkxEarnEvents(
+      { apiKey: "k", apiSecret: "s", passphrase: "p" },
+      { startMs, endMs },
+    );
+    expect(sparse).toEqual([]);
+    // One archive page then stop via raw-scan hitOlderThanStart (no 2nd page)
+    expect(archivePages).toBe(1);
+  });
+
+  it("dedupes identical earn events across streams", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    const bill = load("asset-bills-auto-lend.json");
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": load("lending-empty.json"),
+        "asset/bills": bill,
+        "asset/bills-history": bill,
+        "account/bills": load("lending-empty.json"),
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events).toHaveLength(1);
+  });
+
+  it("covers undefined data payloads and OAuth status fallbacks", async () => {
+    expect(normalizeOkxAssetBills({ code: "0" })).toEqual([]);
+    expect(normalizeOkxAccountEarnBills({ code: "0" })).toEqual([]);
+    expect(normalizeOkxEarn({ code: "0" })).toEqual([]);
+
+    process.env.OKX_API_BASE = "https://www.okx.com";
+    // lending + balance + bills with missing data arrays
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": { code: "0" },
+        "savings/balance": { code: "0" },
+        "asset/bills": { code: "0" },
+        "asset/bills-history": { code: "0" },
+        "account/bills": { code: "0" },
+        "account/bills-archive": { code: "0" },
+      }),
+    );
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "k",
+        apiSecret: "s",
+        passphrase: "p",
+      }),
+    ).resolves.toEqual([]);
+
+    // OAuth success without status → status || 200
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ code: "0", data: [] }),
+      })),
+    );
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "",
+        apiSecret: "",
+        accessToken: "tok",
+      }),
+    ).resolves.toEqual([]);
+
+    // savings balance non-zero code fail-closed
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "savings/balance": { code: "50113", msg: "Invalid Passphrase" },
+      }),
+    );
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "k",
+        apiSecret: "s",
+        passphrase: "p",
+      }),
+    ).rejects.toThrow(/passphrase/i);
+
+    // asset bill without type → null; account earnAmt null → null
+    expect(
+      assetBillToEarnEvent({
+        ccy: "USDT",
+        balChg: "1",
+        ts: "1",
+        type: "" as unknown as string,
+      }),
+    ).toBeNull();
+    expect(
+      accountBillToEarnEvent({
+        ccy: "USDT",
+        ts: "1",
+        earnAmt: undefined,
+      }),
+    ).toBeNull();
+  });
+
+  it("covers savings earnings else-path and lending length ?? 0", async () => {
+    process.env.OKX_API_BASE = "https://www.okx.com";
+
+    // hasPrincipal true, hasReportedEarnings stays false (earn not > 0 / non-finite)
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": load("lending-empty.json"),
+        "savings/balance": {
+          code: "0",
+          data: [
+            { ccy: "USDT", amt: "100", earnings: "0" },
+            { ccy: "ETH", amt: "1", earnings: "nope" },
+          ],
+        },
+        "asset/bills": load("lending-empty.json"),
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": load("lending-empty.json"),
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+    await expect(
+      fetchOkxEarnEvents({
+        apiKey: "k",
+        apiSecret: "s",
+        passphrase: "p",
+      }),
+    ).rejects.toThrow(/no interest history.*savings balance/i);
+
+    // Array-like lending page: length nullish → `?? 0` while lastTs still resolves
+    const row = {
+      ccy: "USDT",
+      amt: "1",
+      earnings: "0.01",
+      ts: "1719792000000",
+    };
+    // null - 1 === -1 in JS, so lastTs reads data[-1] after length is null.
+    const weirdPage: Record<string | number, unknown> & {
+      length: null;
+      [Symbol.iterator]: () => Generator<typeof row>;
+    } = {
+      length: null,
+      [-1]: { ...row, productId: "tail" },
+      [Symbol.iterator]: function* () {
+        for (let i = 0; i < 100; i += 1) yield this[i] as typeof row;
+      },
+    };
+    for (let i = 0; i < 100; i += 1) {
+      weirdPage[i] = { ...row, productId: `p${i}` };
+    }
+    vi.stubGlobal(
+      "fetch",
+      okxFetchRouter({
+        "lending-history": { code: "0", data: weirdPage },
+        "savings/balance": load("lending-empty.json"),
+        "asset/bills": load("lending-empty.json"),
+        "asset/bills-history": load("lending-empty.json"),
+        "account/bills": load("lending-empty.json"),
+        "account/bills-archive": load("lending-empty.json"),
+      }),
+    );
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events.length).toBe(100);
   });
 });

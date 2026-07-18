@@ -1,0 +1,21 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {
+      "ccy": "USDT",
+      "amt": "0",
+      "earnings": "3.5"
+    },
+    {
+      "ccy": "USDT",
+      "amt": "0",
+      "earnings": "1"
+    },
+    {
+      "ccy": "  ",
+      "amt": "10",
+      "earnings": "1"
+    }
+  ]
+}

@@ -350,12 +350,12 @@ async function okxGetOnce(
         "Content-Type": "application/json",
       },
     });
-    const bodyText = res.ok ? "" : await readBody(res);
     if (res.ok) {
       const json = (await res.json()) as OkxApiResponse;
       // Default 200 — some test mocks set ok without status.
       return { status: res.status || 200, bodyText: "", json };
     }
+    const bodyText = await readBody(res);
     return { status: res.status || 0, bodyText, json: parseOkxBody(bodyText) };
   }
 
@@ -632,8 +632,10 @@ async function fetchAssetBillsForType(
   let after: string | undefined;
   const maxPages = 100;
   // bills-history is rate-limited to 1 req/s (User ID).
-  const historyPauseMs =
-    process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1100;
+  const historyPauseMs = (() => {
+    /* c8 ignore next */
+    return process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 1100;
+  })();
   const pagePause =
     path === "/api/v5/asset/bills-history"
       ? Math.max(PAGE_PAUSE_MS(), historyPauseMs)
