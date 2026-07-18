@@ -36,6 +36,7 @@ resources:
   - auth-deployment.yaml
   - mail-templates-deployment.yaml
   - rest-deployment.yaml
+  - storage-deployment.yaml
   - meta-deployment.yaml
   - studio-deployment.yaml
   - kong-deployment.yaml

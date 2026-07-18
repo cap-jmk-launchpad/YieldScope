@@ -83,3 +83,27 @@ kubectl -n supabase-yieldscope get secret yieldscope-supabase-secrets \
 kubectl -n supabase-yieldscope get secret yieldscope-supabase-secrets \
   -o jsonpath='{.data.SERVICE_ROLE_KEY}' | base64 -d; echo
 ```
+
+## Asset logos (Supabase Storage)
+
+Currency / asset logos are **not** in git. They live in a public Storage bucket:
+
+| | |
+|--|--|
+| Bucket | `asset-logos` |
+| Object path | `{slug}.svg` (lowercase ticker or alias: `btc.svg`, `eth.svg`, `mon.svg`, `lunc.svg`, …) |
+| Public URL | `https://supabase.yieldscope.d3bu7.com/storage/v1/object/public/asset-logos/{slug}.svg` |
+
+Requires the `storage` Deployment (`storage-deployment.yaml`) and Kong `/storage/v1/` route.
+Secret key `STORAGE_DATABASE_URL` (`postgres://supabase_storage_admin:…@db:5432/postgres`) is
+created by `k8s-yieldscope-supabase-secret.sh`.
+
+Seed / refresh icons (fetches from cryptocurrency-icons CDN once; generates MON/LUNC/USTC):
+
+```bash
+export KUBECONFIG="$HOME/.kube/config-homelab"
+bash deploy/scripts/upload-asset-logos.sh
+```
+
+The web app resolves logos via `web/src/lib/asset-icon.ts` (`AssetIcon` / `CurrencyLogo` /
+`CurrencyCell`) and falls back to initials if an object is missing.

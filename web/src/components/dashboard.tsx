@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
-import type { EarnEvent, SourceId, SourceStatus } from "@/lib/adapters/types";
+import { CurrencyCell, CurrencyLogo } from "@/components/asset-icon";
 import { EarningsCharts } from "@/components/earnings-charts";
+import type { EarnEvent, SourceId, SourceStatus } from "@/lib/adapters/types";
 import type { ConvertAmount } from "@/lib/earnings-charts";
 import type { SyncRange, SyncRangeMode } from "@/lib/sync-range";
 import {
@@ -266,20 +267,23 @@ export function Dashboard({
         <div className="dash-head-actions">
           <label className="currency-select">
             <span className="currency-select-label">Display</span>
-            <select
-              value={activeCurrency}
-              disabled={Boolean(displayCurrencyProp) || busy}
-              onChange={(e) =>
-                setCurrency(parseDisplayCurrency(e.target.value))
-              }
-              aria-label="Display currency"
-            >
-              {DISPLAY_CURRENCIES.map((c) => (
-                <option key={c} value={c}>
-                  {c === "USD" ? "USD ($)" : c === "EUR" ? "EUR (€)" : c}
-                </option>
-              ))}
-            </select>
+            <span className="currency-select-row">
+              <CurrencyLogo symbol={activeCurrency} size="sm" showLabel={false} />
+              <select
+                value={activeCurrency}
+                disabled={Boolean(displayCurrencyProp) || busy}
+                onChange={(e) =>
+                  setCurrency(parseDisplayCurrency(e.target.value))
+                }
+                aria-label="Display currency"
+              >
+                {DISPLAY_CURRENCIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c === "USD" ? "USD ($)" : c === "EUR" ? "EUR (€)" : c}
+                  </option>
+                ))}
+              </select>
+            </span>
           </label>
           <button
             type="button"
@@ -420,7 +424,9 @@ export function Dashboard({
                 );
                 return (
                   <tr key={`${a.source}:${a.asset}`}>
-                    <td>{a.asset}</td>
+                    <td>
+                      <CurrencyCell symbol={a.asset} />
+                    </td>
                     <td>{SOURCE_LABEL[a.source]}</td>
                     <td className="mono">{a.eventCount}</td>
                     <td className="mono">{a.totalAmount}</td>
@@ -466,7 +472,9 @@ export function Dashboard({
                   <tr key={e.id}>
                     <td className="mono">{new Date(e.earnedAt).toLocaleString()}</td>
                     <td>{SOURCE_LABEL[e.source]}</td>
-                    <td>{e.asset}</td>
+                    <td>
+                      <CurrencyCell symbol={e.asset} />
+                    </td>
                     <td className="mono">{e.amount}</td>
                     <td className="mono">
                       {formatDisplayAmount(converted, activeCurrency)}

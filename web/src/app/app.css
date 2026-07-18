@@ -79,6 +79,12 @@
   font-size: 0.7rem;
 }
 
+.dash .currency-select-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .dash .currency-select select {
   background: color-mix(in oklab, var(--ink) 88%, var(--paper));
   color: var(--paper);

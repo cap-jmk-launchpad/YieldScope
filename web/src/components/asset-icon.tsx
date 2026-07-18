@@ -59,7 +59,7 @@ export function AssetIcon({
           {initials}
         </span>
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element -- remote CDN + onError fallback
+        // eslint-disable-next-line @next/next/no-img-element -- Supabase Storage URL + onError fallback
         <img
           className="asset-icon__img"
           src={src}

@@ -85,6 +85,16 @@ services:
           allow:
             - admin
             - anon
+  # Storage API validates JWTs itself; public bucket objects are anonymous-readable.
+  - name: storage-v1
+    url: http://storage:5000/
+    routes:
+      - name: storage-v1-all
+        strip_path: true
+        paths:
+          - /storage/v1/
+    plugins:
+      - name: cors
   - name: graphql-v1
     url: http://rest:3000/rpc/graphql
     routes:

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  ASSET_LOGOS_BUCKET,
   assetIconAlt,
-  assetIconCdnUrl,
   assetIconInitials,
   assetIconSlug,
   assetIconUrl,
   normalizeAssetSymbol,
+  supabasePublicUrl,
 } from "../../web/src/lib/asset-icon";
 
 describe("asset-icon helpers", () => {
@@ -14,7 +15,7 @@ describe("asset-icon helpers", () => {
     expect(normalizeAssetSymbol("Usdt")).toBe("USDT");
   });
 
-  it("maps aliases to CDN slugs", () => {
+  it("maps aliases to storage slugs", () => {
     expect(assetIconSlug("BTC")).toBe("btc");
     expect(assetIconSlug("LUNC")).toBe("lunc");
     expect(assetIconSlug("USTC")).toBe("ustc");
@@ -23,18 +24,16 @@ describe("asset-icon helpers", () => {
     expect(assetIconSlug("MON")).toBe("mon");
   });
 
-  it("builds CDN URLs for pack icons", () => {
-    expect(assetIconCdnUrl("ETH")).toBe(
-      "https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color/eth.svg",
+  it("builds public Supabase Storage URLs", () => {
+    const base = supabasePublicUrl();
+    expect(assetIconUrl("ETH")).toBe(
+      `${base}/storage/v1/object/public/${ASSET_LOGOS_BUCKET}/eth.svg`,
     );
-    expect(assetIconCdnUrl("BTC")).toContain("/btc.svg");
-  });
-
-  it("prefers local SVG for Monad / Terra Classic", () => {
-    expect(assetIconUrl("MON")).toBe("/assets/icons/mon.svg");
-    expect(assetIconUrl("LUNC")).toBe("/assets/icons/lunc.svg");
-    expect(assetIconUrl("USTC")).toBe("/assets/icons/ustc.svg");
-    expect(assetIconUrl("BTC")).toContain("cdn.jsdelivr.net");
+    expect(assetIconUrl("MON")).toContain(
+      `/storage/v1/object/public/${ASSET_LOGOS_BUCKET}/mon.svg`,
+    );
+    expect(assetIconUrl("BTC")).not.toContain("cdn.jsdelivr.net");
+    expect(assetIconUrl("BTC")).not.toContain("/assets/icons/");
   });
 
   it("provides accessible alt and initials", () => {

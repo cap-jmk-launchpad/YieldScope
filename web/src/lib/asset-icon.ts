@@ -1,26 +1,28 @@
 /**
  * Resolve crypto/fiat asset logos for table cells and selectors.
  *
- * Primary CDN: cryptocurrency-icons via jsDelivr. Unknown / missing pack icons
- * fall back to initials in the React component. Local overrides live under
- * /public/assets/icons/{slug}.svg (MON, LUNC, USTC, …).
+ * Logos live in YieldScope Supabase Storage (not in git):
+ *   bucket:  asset-logos
+ *   object:  {slug}.svg   (lowercase ticker / alias, e.g. btc.svg, mon.svg)
+ *   public:  {SUPABASE_URL}/storage/v1/object/public/asset-logos/{slug}.svg
+ *
+ * Seed / refresh with: deploy/scripts/upload-asset-logos.sh
+ * Missing objects → initials fallback in the React component.
  */
 
-const ICON_CDN =
-  "https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color";
+export const ASSET_LOGOS_BUCKET = "asset-logos";
 
-/** Map display tickers → CDN or local slug when names diverge. */
+const DEFAULT_SUPABASE_URL = "https://supabase.yieldscope.d3bu7.com";
+
+/** Map display tickers → storage object slug when names diverge. */
 const SLUG_ALIASES: Record<string, string> = {
-  // Common wrapped / stable aliases → pack slugs
   WETH: "eth",
   WBTC: "btc",
   BTCB: "btc",
-  // Fiat (present in cryptocurrency-icons)
   USD: "usd",
   EUR: "eur",
   GBP: "gbp",
   JPY: "jpy",
-  // Local SVGs (not in the pack, or pack name differs)
   MON: "mon",
   LUNC: "lunc",
   LUNA: "lunc",
@@ -34,7 +36,7 @@ export function normalizeAssetSymbol(symbol: string): string {
   return symbol.trim().toUpperCase();
 }
 
-/** CDN / local filename slug (lowercase). */
+/** Storage object slug (lowercase, alphanumeric). */
 export function assetIconSlug(symbol: string): string {
   const normalized = normalizeAssetSymbol(symbol);
   if (!normalized) return "generic";
@@ -42,21 +44,23 @@ export function assetIconSlug(symbol: string): string {
   return aliased.replace(/[^a-z0-9]/g, "") || "generic";
 }
 
-/** Prefer local SVG when we ship one; else cryptocurrency-icons CDN. */
+export function supabasePublicUrl(): string {
+  const raw =
+    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_SUPABASE_URL) ||
+    DEFAULT_SUPABASE_URL;
+  return raw.replace(/\/$/, "");
+}
+
+/** Public Supabase Storage URL for an asset logo SVG. */
 export function assetIconUrl(symbol: string): string {
   const slug = assetIconSlug(symbol);
-  if (LOCAL_ICON_SLUGS.has(slug)) {
-    return `/assets/icons/${slug}.svg`;
-  }
-  return assetIconCdnUrl(symbol);
+  return `${supabasePublicUrl()}/storage/v1/object/public/${ASSET_LOGOS_BUCKET}/${slug}.svg`;
 }
 
+/** @deprecated Use assetIconUrl — logos are served from Supabase Storage only. */
 export function assetIconCdnUrl(symbol: string): string {
-  return `${ICON_CDN}/${assetIconSlug(symbol)}.svg`;
+  return assetIconUrl(symbol);
 }
-
-/** Symbols we ship under web/public/assets/icons/. */
-const LOCAL_ICON_SLUGS = new Set(["mon", "lunc", "ustc"]);
 
 /** Up to 3 chars for the initials fallback chip. */
 export function assetIconInitials(symbol: string): string {
