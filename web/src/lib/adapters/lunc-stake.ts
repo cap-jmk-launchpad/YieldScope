@@ -241,13 +241,15 @@ export function normalizeLuncRewards(
   return events;
 }
 
-function txSucceeded(tx: LuncTxResponse): boolean {
+/** True when LCD tx `code` is missing or 0 (success). */
+export function txSucceeded(tx: LuncTxResponse): boolean {
   if (tx.code === undefined || tx.code === null || tx.code === "") return true;
   const n = Number(tx.code);
   return Number.isFinite(n) && n === 0;
 }
 
-function attrMap(
+/** Flatten event attributes; skips entries without a key. */
+export function attrMap(
   attrs: Array<{ key?: string; value?: string }> | undefined,
 ): Record<string, string> {
   const out: Record<string, string> = {};
@@ -399,7 +401,8 @@ export function estimateHeightAt(
   return Math.max(1, latest.height - deltaBlocks);
 }
 
-function resolveFetchWindow(
+/** Resolve allTime / start-end / default-90d into concrete ms bounds. */
+export function resolveFetchWindow(
   opts?: EarnFetchOptions,
   nowMs = Date.now(),
 ): { startMs: number; endMs: number } {
@@ -418,18 +421,22 @@ function resolveFetchWindow(
   return { startMs: nowMs - CEX_TRANSPORT_MAX_SPAN_MS, endMs: nowMs };
 }
 
-function shouldIncludePending(
+/**
+ * Pending snapshot is included when the window reaches “now” (≤1 day),
+ * unless `explicit` overrides.
+ */
+export function shouldIncludePending(
   endMs: number,
   nowMs: number,
   explicit?: boolean,
 ): boolean {
   if (explicit === false) return false;
   if (explicit === true) return true;
-  // Include pending when the window reaches “now” (within one day).
   return endMs >= nowMs - 24 * 60 * 60 * 1000;
 }
 
-function buildWithdrawQuery(
+/** LCD `query=` string for height-bounded withdraw_rewards search. */
+export function buildWithdrawQuery(
   address: string,
   heightMin: number,
   heightMax: number,
@@ -441,7 +448,8 @@ function buildWithdrawQuery(
   );
 }
 
-function isPageOutOfRangeMessage(body: string): boolean {
+/** Tendermint/LCD “page should be within [1, N]” → end of pagination. */
+export function isPageOutOfRangeMessage(body: string): boolean {
   return /page should be within/i.test(body);
 }
 
@@ -563,7 +571,8 @@ async function fetchPendingRewards(
   return normalizeLuncRewards(address, json, asOf);
 }
 
-function lcdCandidates(primary: string): string[] {
+/** Deduped primary + env fallback LCD base URLs (trailing slash stripped). */
+export function lcdCandidates(primary: string): string[] {
   const list = [primary, ...FALLBACK_LCDS.map((s) => s.replace(/\/$/, ""))];
   const seen = new Set<string>();
   const out: string[] = [];
