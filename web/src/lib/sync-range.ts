@@ -1,0 +1,160 @@
+/** Sync window: all available history, or an inclusive custom date range. */
+
+export type SyncRangeMode = "all" | "custom";
+
+export interface SyncRange {
+  mode: SyncRangeMode;
+  /** Inclusive start — `YYYY-MM-DD` or ISO-8601 */
+  from?: string;
+  /** Inclusive end — `YYYY-MM-DD` or ISO-8601 */
+  to?: string;
+}
+
+export interface ResolvedSyncWindow {
+  mode: SyncRangeMode;
+  /** Inclusive start ms; null = unbounded (all-time) */
+  fromMs: number | null;
+  /** Inclusive end ms; null = unbounded (all-time) */
+  toMs: number | null;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Binance Simple Earn history rejects windows longer than 30 days. */
+export const BINANCE_MAX_WINDOW_MS = 30 * DAY_MS;
+
+/** How far back "all time" walks for CEX history (safety cap). */
+export const ALL_TIME_LOOKBACK_MS = 2 * 365 * DAY_MS;
+
+export class SyncRangeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SyncRangeError";
+  }
+}
+
+function parseBound(value: string, endOfDay: boolean): number {
+  const trimmed = value.trim();
+  // Date-only → treat as UTC day bounds
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const ms = Date.parse(
+      endOfDay ? `${trimmed}T23:59:59.999Z` : `${trimmed}T00:00:00.000Z`,
+    );
+    if (Number.isNaN(ms)) {
+      throw new SyncRangeError(`Invalid date: ${value}`);
+    }
+    return ms;
+  }
+  const ms = Date.parse(trimmed);
+  if (Number.isNaN(ms)) {
+    throw new SyncRangeError(`Invalid date: ${value}`);
+  }
+  return ms;
+}
+
+/**
+ * Resolve UI/API sync range into millisecond bounds.
+ * `mode: "all"` → unbounded (adapters fetch full available history).
+ */
+export function resolveSyncRange(
+  range?: SyncRange | null,
+): ResolvedSyncWindow {
+  if (!range || range.mode === "all") {
+    return { mode: "all", fromMs: null, toMs: null };
+  }
+
+  if (!range.from || !range.to) {
+    throw new SyncRangeError(
+      "Custom sync range requires both from and to dates",
+    );
+  }
+
+  const fromMs = parseBound(range.from, false);
+  const toMs = parseBound(range.to, true);
+  if (fromMs > toMs) {
+    throw new SyncRangeError("Sync range from must be on or before to");
+  }
+
+  return { mode: "custom", fromMs, toMs };
+}
+
+export function eventInWindow(
+  earnedAt: string,
+  window: ResolvedSyncWindow,
+): boolean {
+  if (window.mode === "all") return true;
+  const t = Date.parse(earnedAt);
+  if (Number.isNaN(t)) return false;
+  if (window.fromMs != null && t < window.fromMs) return false;
+  if (window.toMs != null && t > window.toMs) return false;
+  return true;
+}
+
+export function filterEventsByWindow<T extends { earnedAt: string }>(
+  events: T[],
+  window: ResolvedSyncWindow,
+): T[] {
+  if (window.mode === "all") return events;
+  return events.filter((e) => eventInWindow(e.earnedAt, window));
+}
+
+/**
+ * Split [fromMs, toMs] into ≤30-day chunks for Binance (newest first).
+ */
+export function chunkTimeRange(
+  fromMs: number,
+  toMs: number,
+  maxSpanMs = BINANCE_MAX_WINDOW_MS,
+): Array<{ startMs: number; endMs: number }> {
+  if (fromMs > toMs) return [];
+  const chunks: Array<{ startMs: number; endMs: number }> = [];
+  let end = toMs;
+  while (end >= fromMs) {
+    const start = Math.max(fromMs, end - maxSpanMs + 1);
+    chunks.push({ startMs: start, endMs: end });
+    if (start <= fromMs) break;
+    end = start - 1;
+  }
+  return chunks;
+}
+
+/** Default lookback window for Binance "all time" (newest → oldest chunks). */
+export function allTimeBinanceChunks(nowMs = Date.now()): Array<{
+  startMs: number;
+  endMs: number;
+}> {
+  return chunkTimeRange(nowMs - ALL_TIME_LOOKBACK_MS, nowMs);
+}
+
+export function parseSyncRangeBody(
+  body: unknown,
+): SyncRange | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const r = body as Record<string, unknown>;
+  if (r.range == null) {
+    // Flat from/to + optional mode on the body itself
+    if (r.mode === "all" || (r.from == null && r.to == null && r.mode == null)) {
+      if (r.mode === "all") return { mode: "all" };
+      if (r.from == null && r.to == null) return undefined;
+    }
+    if (typeof r.from === "string" || typeof r.to === "string") {
+      return {
+        mode: "custom",
+        from: typeof r.from === "string" ? r.from : undefined,
+        to: typeof r.to === "string" ? r.to : undefined,
+      };
+    }
+    return undefined;
+  }
+  if (typeof r.range !== "object" || r.range === null) {
+    throw new SyncRangeError("Invalid range payload");
+  }
+  const range = r.range as Record<string, unknown>;
+  const mode = range.mode === "custom" ? "custom" : "all";
+  if (mode === "all") return { mode: "all" };
+  return {
+    mode: "custom",
+    from: typeof range.from === "string" ? range.from : undefined,
+    to: typeof range.to === "string" ? range.to : undefined,
+  };
+}

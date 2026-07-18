@@ -58,6 +58,43 @@
   flex-wrap: wrap;
 }
 
+.dash-head-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.dash .currency-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.dash .currency-select-label {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.dash .currency-select select {
+  background: color-mix(in oklab, var(--ink) 88%, var(--paper));
+  color: var(--paper);
+  border: 1px solid color-mix(in oklab, var(--muted) 40%, transparent);
+  padding: 0.55rem 0.65rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  min-width: 7.5rem;
+  cursor: pointer;
+}
+
+.dash .currency-select select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .dash .eyebrow {
   color: var(--muted);
   font-size: 0.8rem;
@@ -84,6 +121,77 @@
   color: var(--muted);
   margin: 0;
   font-size: 0.9rem;
+}
+
+.dash .sync-range {
+  border: 1px solid color-mix(in oklab, var(--muted) 35%, transparent);
+  margin: 0;
+  padding: 0.85rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dash .sync-range-legend {
+  padding: 0 0.35rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dash .sync-range-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.dash .sync-range-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.dash .sync-range-option input {
+  accent-color: var(--mint);
+}
+
+.dash .sync-range-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.25rem;
+}
+
+.dash .sync-range-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.dash .sync-range-field input[type="date"] {
+  background: color-mix(in oklab, var(--ink) 88%, var(--paper));
+  color: var(--paper);
+  border: 1px solid color-mix(in oklab, var(--muted) 40%, transparent);
+  padding: 0.45rem 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  min-width: 10.5rem;
+}
+
+.dash .sync-range-field input[type="date"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dash .sync-range-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .dash .sources {
@@ -170,6 +278,150 @@
 .dash .empty {
   color: var(--muted);
   padding: 1.5rem 0.4rem;
+}
+
+/* Earnings charts */
+.dash .charts {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.dash .charts-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 720px) {
+  .dash .charts-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dash .chart-card {
+  border: 1px solid color-mix(in oklab, var(--muted) 30%, transparent);
+  background: color-mix(in oklab, var(--ink-elevated) 70%, transparent);
+  padding: 1rem 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+}
+
+.dash .chart-card-head h2 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  margin: 0;
+  color: var(--paper);
+  letter-spacing: -0.01em;
+}
+
+.dash .chart-card-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.dash .chart-card-body {
+  min-height: 12rem;
+}
+
+.dash .chart-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 2rem 0;
+  line-height: 1.45;
+}
+
+.dash .chart-pie-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, 0.85fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 520px) {
+  .dash .chart-pie-wrap {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dash .chart-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.dash .chart-legend li {
+  display: grid;
+  grid-template-columns: 0.65rem minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.dash .chart-legend-swatch {
+  width: 0.55rem;
+  height: 0.55rem;
+  display: inline-block;
+}
+
+.dash .chart-legend .asset-icon {
+  min-width: 0;
+}
+
+.dash .chart-legend .asset-icon__label {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.dash .chart-legend-val {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.dash .chart-legend-pct {
+  color: color-mix(in oklab, var(--muted) 80%, transparent);
+}
+
+/* Asset / currency logos in ledger tables */
+.asset-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.asset-icon__img {
+  display: block;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: color-mix(in oklab, var(--paper) 8%, transparent);
+}
+
+.asset-icon__fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--mint) 18%, var(--ink-elevated));
+  color: var(--mint);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.asset-icon__label {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--paper);
 }
 
 .btn-primary {
