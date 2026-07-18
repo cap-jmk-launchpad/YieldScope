@@ -229,6 +229,10 @@
   border-color: color-mix(in oklab, var(--error) 55%, transparent);
 }
 
+.dash .status-syncing {
+  border-color: color-mix(in oklab, var(--mint) 40%, transparent);
+}
+
 .dash .source-name {
   font-weight: 600;
 }
@@ -238,6 +242,9 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .dash .status-ok .source-status {
@@ -248,14 +255,58 @@
   color: var(--error);
 }
 
+.dash .status-syncing .source-status {
+  color: var(--mint);
+}
+
 .dash .source-count,
-.dash .source-error {
+.dash .source-error,
+.dash .source-hint {
   font-size: 0.8rem;
   color: var(--muted);
 }
 
 .dash .source-error {
   color: var(--error);
+}
+
+.dash .sync-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid color-mix(in oklab, var(--mint) 40%, transparent);
+  background: color-mix(in oklab, var(--mint) 8%, transparent);
+  color: var(--paper);
+  font-size: 0.9rem;
+}
+
+.dash .sync-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dash .sync-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid color-mix(in oklab, var(--paper) 35%, transparent);
+  border-top-color: var(--mint);
+  border-radius: 50%;
+  animation: sync-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.dash .sync-spinner-sm {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-width: 1.5px;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .dash .table-wrap {

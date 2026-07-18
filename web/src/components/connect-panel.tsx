@@ -195,7 +195,7 @@ export function ConnectPanel() {
         </div>
         <p className="hint">
           Create a read-only API key in OKX → API. Include passphrase; leave
-          trade and withdraw off.
+          trade and withdraw off. EEA/EU keys are detected automatically.
         </p>
         <label>
           API key

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { CurrencyCell, CurrencyLogo } from "@/components/asset-icon";
 import { EarningsCharts } from "@/components/earnings-charts";
@@ -11,6 +11,18 @@ import {
   auditPriceCoverage,
 } from "@/lib/prices/missing-symbols";
 import type { SyncRange, SyncRangeMode } from "@/lib/sync-range";
+import {
+  clearSyncSession,
+  formatSyncingOverview,
+  isSyncSessionFresh,
+  readSyncSession,
+  resolveUiSourceStatus,
+  sourceErrorForDisplay,
+  sourcesForSyncTarget,
+  UI_STATUS_LABEL,
+  writeSyncSession,
+  type UiSourceStatus,
+} from "@/lib/sync-status";
 import {
   DEFAULT_PAGE_SIZE,
   loadPageSizeFromStorage,
@@ -61,12 +73,6 @@ const SOURCE_LABEL: Record<SourceId, string> = {
   okx: "OKX",
   monad_stake: "Monad stake",
   lunc_stake: "LUNC stake",
-};
-
-const STATUS_LABEL: Record<SourceStatus, string> = {
-  ok: "Connected",
-  error: "Error",
-  not_connected: "Not connected",
 };
 
 const SYNC_RANGE_KEY = "yieldscope.syncRange";
@@ -129,6 +135,7 @@ export function Dashboard({
 }: DashboardDisplayCurrency = {}) {
   const [ledger, setLedger] = useState<LedgerResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [syncingSources, setSyncingSources] = useState<SourceId[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [rangeMode, setRangeMode] = useState<SyncRangeMode>("all");
   const [forceFullRefresh, setForceFullRefresh] = useState(false);
@@ -142,6 +149,7 @@ export function Dashboard({
   const [assetsPage, setAssetsPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(DEFAULT_PAGE_SIZE);
   const [pageSizeReady, setPageSizeReady] = useState(false);
+  const syncGen = useRef(0);
   const { address, chainId } = useAccount();
 
   useEffect(() => {
@@ -225,80 +233,166 @@ export function Dashboard({
     void refreshRates();
   }, [refresh, refreshRates]);
 
-  async function runSync(source: "all" | SourceId = "all") {
+  // Recover visible sync state after refresh / navigation mid-sync.
+  useEffect(() => {
+    const session = readSyncSession();
+    if (!session || !isSyncSessionFresh(session)) {
+      clearSyncSession();
+      return;
+    }
+    if (session.pending.length === 0) {
+      clearSyncSession();
+      return;
+    }
     setBusy(true);
-    setMessage(null);
-    try {
-      const range: SyncRange =
-        rangeMode === "all"
-          ? {
-              mode: "all",
-              ...(forceFullRefresh ? { forceFull: true } : {}),
-            }
-          : { mode: "custom", from: fromDate, to: toDate };
+    setSyncingSources(session.pending);
+    setMessage(
+      formatSyncingOverview(session.pending) ??
+        "A sync was still running — refreshing…",
+    );
+    void (async () => {
+      await refresh();
+      clearSyncSession();
+      setBusy(false);
+      setSyncingSources([]);
+      setMessage("Synced status refreshed.");
+    })();
+  }, [refresh]);
 
-      if (range.mode === "custom" && (!range.from || !range.to)) {
-        setMessage("Pick both from and to dates, or choose All time.");
-        setBusy(false);
-        return;
-      }
+  async function syncOneSource(
+    source: SourceId,
+    range: SyncRange,
+    gen: number,
+  ): Promise<{ status?: string; error?: string } | null> {
+    const body: Record<string, unknown> = {
+      source,
+      chainId: chainId ?? 10143,
+      range,
+      ...(range.mode === "all" && forceFullRefresh ? { forceFull: true } : {}),
+    };
+    if (address) body.address = address;
 
-      const body: Record<string, unknown> = {
-        source,
-        chainId: chainId ?? 10143,
-        range,
-        ...(range.mode === "all" && forceFullRefresh
-          ? { forceFull: true }
-          : {}),
+    const res = await fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json()) as {
+      ledger?: LedgerResponse;
+      results?: Record<string, { status?: string; error?: string }>;
+      error?: string;
+    };
+
+    if (gen !== syncGen.current) return null;
+
+    if (json.ledger) {
+      setLedger(json.ledger);
+    }
+
+    const result = json.results?.[source] ?? null;
+    if (!res.ok && !result) {
+      return {
+        status: "error",
+        error: json.error ?? "Sync failed. Nothing was saved — try again.",
       };
-      if (address) body.address = address;
-      const res = await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (json.ledger) setLedger(json.ledger);
-      const results = json.results as
-        | Record<string, { status?: string; error?: string }>
-        | undefined;
-      const sourceErrors: string[] = [];
-      if (results) {
-        for (const [src, r] of Object.entries(results)) {
-          if (r?.status === "error" && r.error) {
-            const label =
-              SOURCE_LABEL[src as SourceId] ?? src.replace(/_/g, " ");
-            sourceErrors.push(`${label}: ${r.error}`);
+    }
+    return result;
+  }
+
+  async function runSync(target: "all" | SourceId = "all") {
+    const gen = ++syncGen.current;
+    const targets = sourcesForSyncTarget(target);
+
+    const range: SyncRange =
+      rangeMode === "all"
+        ? {
+            mode: "all",
+            ...(forceFullRefresh ? { forceFull: true } : {}),
           }
+        : { mode: "custom", from: fromDate, to: toDate };
+
+    if (range.mode === "custom" && (!range.from || !range.to)) {
+      setMessage("Pick both from and to dates, or choose All time.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage(formatSyncingOverview(targets));
+    setSyncingSources(targets);
+    writeSyncSession({
+      startedAt: new Date().toISOString(),
+      sources: targets,
+      pending: targets,
+    });
+
+    // Optimistic: clear stale errors on sources about to sync.
+    setLedger((prev) => {
+      if (!prev) return prev;
+      const sources = { ...prev.sources };
+      for (const id of targets) {
+        const cur = sources[id] ?? {
+          status: "not_connected" as SourceStatus,
+          eventCount: 0,
+        };
+        sources[id] = {
+          ...cur,
+          error: undefined,
+        };
+      }
+      return { ...prev, sources };
+    });
+
+    const sourceErrors: string[] = [];
+    let pending = [...targets];
+
+    try {
+      for (const src of targets) {
+        if (gen !== syncGen.current) return;
+
+        const result = await syncOneSource(src, range, gen);
+        if (gen !== syncGen.current) return;
+
+        pending = pending.filter((s) => s !== src);
+        setSyncingSources(pending);
+        writeSyncSession({
+          startedAt: new Date().toISOString(),
+          sources: targets,
+          pending,
+        });
+        setMessage(formatSyncingOverview(pending) ?? null);
+
+        if (result?.status === "error" && result.error) {
+          sourceErrors.push(`${SOURCE_LABEL[src]}: ${result.error}`);
         }
       }
+
+      if (gen !== syncGen.current) return;
+
       const modeLabel =
         range.mode === "all"
           ? forceFullRefresh
             ? "all time · full history"
             : "all time"
           : `${range.from} → ${range.to}`;
-      if (!res.ok) {
-        const parts: string[] = [
-          json.error ?? "Sync failed. Nothing was saved — try again.",
-          ...sourceErrors,
-        ];
-        setMessage(parts.join(" · "));
-      } else if (sourceErrors.length > 0) {
+
+      if (sourceErrors.length > 0) {
         setMessage(
           `Sync finished with errors (${modeLabel}). ${sourceErrors.join(" · ")}`,
         );
-        if (forceFullRefresh) setForceFullRefresh(false);
-        void refreshRates();
       } else {
         setMessage(`Sync finished (${modeLabel}).`);
-        if (forceFullRefresh) setForceFullRefresh(false);
-        void refreshRates();
       }
+      if (forceFullRefresh) setForceFullRefresh(false);
+      void refreshRates();
     } catch (err) {
+      if (gen !== syncGen.current) return;
       setMessage(err instanceof Error ? err.message : "Sync failed");
     } finally {
-      setBusy(false);
+      if (gen === syncGen.current) {
+        setBusy(false);
+        setSyncingSources([]);
+        clearSyncSession();
+      }
     }
   }
 
@@ -329,6 +423,7 @@ export function Dashboard({
     Boolean(convertAmountProp),
   );
   const customDisabled = rangeMode !== "custom";
+  const syncOverview = formatSyncingOverview(syncingSources);
 
   const byAssetRows = ledger?.aggregates?.byAsset ?? [];
   const eventRows = ledger?.events ?? [];
@@ -389,14 +484,29 @@ export function Dashboard({
           </label>
           <button
             type="button"
-            className="btn-primary"
+            className="btn-primary sync-btn"
             disabled={busy}
-            onClick={() => runSync("all")}
+            onClick={() => void runSync("all")}
+            aria-busy={busy}
           >
-            {busy ? "Syncing…" : "Sync sources"}
+            {busy ? (
+              <>
+                <span className="sync-spinner" aria-hidden />
+                Syncing…
+              </>
+            ) : (
+              "Sync sources"
+            )}
           </button>
         </div>
       </header>
+
+      {busy || syncOverview ? (
+        <div className="sync-status-strip" role="status" aria-live="polite">
+          <span className="sync-spinner" aria-hidden />
+          <span>{syncOverview ?? "Sync in progress…"}</span>
+        </div>
+      ) : null}
 
       <fieldset className="sync-range">
         <legend className="sync-range-legend">Sync window</legend>
@@ -462,9 +572,10 @@ export function Dashboard({
           </label>
         ) : null}
         <p className="sync-range-hint">
-          Date range applies to Binance and OKX. After the first sync, All time
-          only picks up new rewards unless you re-download full history. Monad
-          and LUNC always show current pending rewards.
+          Date range applies to Binance and OKX exchange history. Monad stake and
+          LUNC wallet only refresh current pending rewards (not a multi-year
+          history). After the first sync, All time only picks up new exchange
+          rewards unless you re-download full history.
         </p>
       </fieldset>
 
@@ -473,11 +584,25 @@ export function Dashboard({
       {ledger?.wallet ? (
         <p className="msg mono">Wallet {ledger.wallet.address}</p>
       ) : null}
-      {message ? <p className="msg">{message}</p> : null}
+      {message && !busy ? <p className="msg">{message}</p> : null}
+      {coverageGaps.length > 0 ? (
+        <p className="msg">
+          Missing price rates for: {coverageGaps.slice(0, 8).join(", ")}
+          {coverageGaps.length > 8 ? "…" : ""}
+        </p>
+      ) : null}
 
       <div className="sources">
         {(Object.keys(SOURCE_LABEL) as SourceId[]).map((id) => {
           const s = ledger?.sources[id];
+          const syncing = syncingSources.includes(id);
+          const uiStatus: UiSourceStatus = resolveUiSourceStatus(
+            s?.status,
+            syncing,
+          );
+          const displayError = syncing
+            ? undefined
+            : sourceErrorForDisplay(s?.status, s?.error);
           const agg = ledger?.aggregates?.bySource.find((a) => a.source === id);
           const sourceAssets = (ledger?.aggregates?.byAsset ?? []).filter(
             (a) => a.source === id,
@@ -493,17 +618,34 @@ export function Dashboard({
               : agg
                 ? `Σ ${agg.totalAmount} (native)`
                 : "";
+          const isPointInTime = id === "monad_stake" || id === "lunc_stake";
           return (
-            <div key={id} className={`source status-${s?.status ?? "not_connected"}`}>
+            <div
+              key={id}
+              className={`source status-${uiStatus}`}
+              aria-busy={syncing}
+            >
               <span className="source-name">{SOURCE_LABEL[id]}</span>
               <span className="source-status">
-                {STATUS_LABEL[s?.status ?? "not_connected"]}
+                {syncing ? (
+                  <>
+                    <span className="sync-spinner sync-spinner-sm" aria-hidden />
+                    {UI_STATUS_LABEL.syncing}
+                  </>
+                ) : (
+                  UI_STATUS_LABEL[uiStatus]
+                )}
               </span>
               <span className="source-count">
                 {agg?.eventCount ?? s?.eventCount ?? 0} events
                 {sumLabel ? ` · ${sumLabel}` : ""}
               </span>
-              {s?.error ? <span className="source-error">{s.error}</span> : null}
+              {isPointInTime ? (
+                <span className="source-hint">Current pending only</span>
+              ) : null}
+              {displayError ? (
+                <span className="source-error">{displayError}</span>
+              ) : null}
             </div>
           );
         })}
