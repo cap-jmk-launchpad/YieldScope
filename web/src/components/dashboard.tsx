@@ -16,6 +16,7 @@ import {
   cexCoverageRefreshHint,
   ledgerEventsForDisplay,
   resolveSyncRange,
+  syncRangesForSource,
 } from "@/lib/sync-range";
 import {
   clearSyncSession,
@@ -283,16 +284,36 @@ export function Dashboard({
     };
     if (address) body.address = address;
 
-    const res = await fetch("/api/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = (await res.json()) as {
+    let res: Response;
+    try {
+      res = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      return {
+        status: "error",
+        error:
+          "Sync request failed (network or timeout). Try a shorter date range or retry.",
+      };
+    }
+
+    let json: {
       ledger?: LedgerResponse;
       results?: Record<string, { status?: string; error?: string }>;
       error?: string;
     };
+    try {
+      json = (await res.json()) as typeof json;
+    } catch {
+      return {
+        status: "error",
+        error: res.ok
+          ? "Sync returned an unreadable response. Try again."
+          : `Sync failed (HTTP ${res.status}). The window may be too large — try again or narrow the dates.`,
+      };
+    }
 
     if (gen !== syncGen.current) return null;
 
@@ -357,7 +378,18 @@ export function Dashboard({
       for (const src of targets) {
         if (gen !== syncGen.current) return;
 
-        const result = await syncOneSource(src, range, gen);
+        const ranges = syncRangesForSource(src, range);
+        let result: { status?: string; error?: string } | null = null;
+        for (let i = 0; i < ranges.length; i += 1) {
+          if (gen !== syncGen.current) return;
+          if (ranges.length > 1) {
+            setMessage(
+              `Syncing ${SOURCE_LABEL[src]} (${i + 1}/${ranges.length})…`,
+            );
+          }
+          result = await syncOneSource(src, ranges[i], gen);
+          if (result?.status === "error") break;
+        }
         if (gen !== syncGen.current) return;
 
         pending = pending.filter((s) => s !== src);

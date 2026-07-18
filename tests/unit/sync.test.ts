@@ -420,7 +420,12 @@ describe("sync with persistence", () => {
         }),
       }),
     );
-    const { syncOkx, syncBinance } = await import("../../web/src/lib/sync");
+    const { syncOkx, syncBinance, userFacingAdapterError } = await import(
+      "../../web/src/lib/sync"
+    );
+    const { BinanceAdapterError } = await import(
+      "../../web/src/lib/adapters/binance"
+    );
     const okx = await syncOkx(dummyOkx, { userId: "u1" });
     expect(okx.status).toBe("ok");
     expect(okx.events).toHaveLength(1);
@@ -432,6 +437,14 @@ describe("sync with persistence", () => {
     const binance = await syncBinance(dummyCex, { userId: "u1" });
     expect(binance.status).toBe("error");
     expect(binance.error).toMatch(/Binance earn history/i);
+
+    // Adapter errors with "malformed" must not be scrubbed to the generic hint.
+    expect(
+      userFacingAdapterError(
+        new BinanceAdapterError("Malformed Binance reward row"),
+        "FALLBACK",
+      ),
+    ).toBe("Malformed Binance reward row");
     vi.unstubAllGlobals();
   });
 

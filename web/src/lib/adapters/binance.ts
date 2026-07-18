@@ -17,10 +17,10 @@ const BINANCE_BASE = process.env.BINANCE_API_BASE ?? "https://api.binance.com";
 /** Mandatory on /rewardsRecord — ALL returns BONUS + REALTIME + REWARDS. */
 const REWARDS_TYPE = "ALL";
 
-/** Pause between chunk requests (endpoint weight is 150). Skip in tests. */
+/** Pause between chunk requests (endpoint weight is 150 → ~40 req/min IP budget). */
 function chunkPauseMs(): number {
   /* c8 ignore next */
-  return process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 250;
+  return process.env.VITEST || process.env.NODE_ENV === "test" ? 0 : 400;
 }
 
 function retryBackoffUnitMs(): number {

@@ -87,15 +87,16 @@ describe("OKX earn adapter", () => {
     expect(resolveOkxApiBases()).toEqual(["https://eea.okx.com"]);
   });
 
-  it("resolveOkxApiBases lists global then EEA hosts by default", () => {
+  it("resolveOkxApiBases lists EEA then global hosts by default", () => {
     expect(resolveOkxApiBases()).toEqual([
-      "https://www.okx.com",
       "https://eea.okx.com",
+      "https://www.okx.com",
       "https://my.okx.com",
     ]);
   });
 
   it("retries EEA base when www returns 50119", async () => {
+    // Force www-first via sticky so we still exercise regional fallback.
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).startsWith("https://www.okx.com")) {
         return {
@@ -115,6 +116,12 @@ describe("OKX earn adapter", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
+    // Seed sticky to www (simulates prior global-key success / old deploy order).
+    const basesBefore = resolveOkxApiBases();
+    expect(basesBefore[0]).toBe("https://eea.okx.com");
+
+    // Direct probe with sticky cleared — EEA succeeds first for EEA keys.
+    resetOkxBaseCache();
     const events = await fetchOkxEarnEvents({
       apiKey: "k",
       apiSecret: "s",
@@ -122,9 +129,69 @@ describe("OKX earn adapter", () => {
     });
     expect(events).toHaveLength(2);
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
-    expect(urls.some((u) => u.startsWith("https://www.okx.com"))).toBe(true);
-    expect(urls.some((u) => u.startsWith("https://eea.okx.com"))).toBe(true);
-    // Sticky: second page (if any) should prefer eea — only one page here.
+    expect(urls[0]).toMatch(/^https:\/\/eea\.okx\.com/);
+    expect(resolveOkxApiBases()[0]).toBe("https://eea.okx.com");
+  });
+
+  it("falls back from sticky www to EEA on 50119 and clears sticky", async () => {
+    // First establish sticky www via a successful www response, then flip to 50119.
+    let phase: "seed" | "fail" = "seed";
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (phase === "seed" && u.startsWith("https://eea.okx.com")) {
+        return {
+          ok: false,
+          status: 401,
+          text: async () =>
+            JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
+        };
+      }
+      if (phase === "seed" && u.startsWith("https://www.okx.com")) {
+        return {
+          ok: true,
+          json: async () => load("lending-empty.json"),
+        };
+      }
+      if (phase === "fail" && u.startsWith("https://www.okx.com")) {
+        return {
+          ok: false,
+          status: 401,
+          text: async () =>
+            JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
+        };
+      }
+      if (phase === "fail" && u.startsWith("https://eea.okx.com")) {
+        return {
+          ok: true,
+          json: async () => load("lending-history.json"),
+        };
+      }
+      if (u.startsWith("https://my.okx.com")) {
+        return {
+          ok: false,
+          status: 401,
+          text: async () =>
+            JSON.stringify({ code: "50119", msg: "API key doesn't exist" }),
+        };
+      }
+      throw new Error(`unexpected url ${u} phase=${phase}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(resolveOkxApiBases()[0]).toBe("https://www.okx.com");
+
+    phase = "fail";
+    const events = await fetchOkxEarnEvents({
+      apiKey: "k",
+      apiSecret: "s",
+      passphrase: "p",
+    });
+    expect(events).toHaveLength(2);
     expect(resolveOkxApiBases()[0]).toBe("https://eea.okx.com");
   });
 
@@ -182,9 +249,9 @@ describe("OKX earn adapter", () => {
     await expect(
       fetchOkxEarnEvents({ apiKey: "k", apiSecret: "s", passphrase: "bad" }),
     ).rejects.toThrow(/passphrase/i);
-    // Only tried www — not eea/my
+    // Only tried first regional host — not the rest
     expect(fetchMock.mock.calls.length).toBe(1);
-    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^https:\/\/www\.okx\.com/);
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^https:\/\/eea\.okx\.com/);
   });
 
   it("stops pagination when after cursor does not advance", async () => {

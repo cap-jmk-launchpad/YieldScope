@@ -8,8 +8,8 @@ import type {
 
 /** Global + EEA hosts. EEA API keys return 50119 on www.okx.com (live-verified Jul 2026). */
 const DEFAULT_OKX_BASES = [
-  "https://www.okx.com",
   "https://eea.okx.com",
+  "https://www.okx.com",
   "https://my.okx.com",
 ] as const;
 
@@ -264,6 +264,7 @@ async function okxGet(
           isWrongRegionCode(result.json.code) &&
           baseIndex < bases.length - 1
         ) {
+          if (stickyOkxBase === base) stickyOkxBase = null;
           break; // next base
         }
         stickyOkxBase = base;
@@ -274,6 +275,7 @@ async function okxGet(
         isWrongRegionCode(result.json?.code) &&
         baseIndex < bases.length - 1
       ) {
+        if (stickyOkxBase === base) stickyOkxBase = null;
         break; // next base
       }
 

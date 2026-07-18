@@ -39,6 +39,50 @@ describe("sync-range", () => {
     expect(w.toMs).toBe(Date.parse("2024-07-31T23:59:59.999Z"));
   });
 
+  it("accepts European DD.MM.YYYY date bounds", () => {
+    const w = resolveSyncRange({
+      mode: "custom",
+      from: "01.01.2022",
+      to: "18.07.2026",
+    });
+    expect(w.fromMs).toBe(Date.parse("2022-01-01T00:00:00.000Z"));
+    expect(w.toMs).toBe(Date.parse("2026-07-18T23:59:59.999Z"));
+    expect(buildSyncRangeFromUi("custom", "01.01.2022", "18/07/2026")).toEqual({
+      mode: "custom",
+      from: "2022-01-01",
+      to: "2026-07-18",
+    });
+  });
+
+  it("splits multi-year custom ranges into ≤90-day transport windows", async () => {
+    const { splitCustomRangeForTransport, syncRangesForSource, CEX_TRANSPORT_MAX_SPAN_MS } =
+      await import("../../web/src/lib/sync-range");
+    const parts = splitCustomRangeForTransport("2022-01-01", "2026-07-18");
+    expect(parts.length).toBeGreaterThan(10);
+    expect(parts[0].from).toBe("2022-01-01");
+    expect(parts.at(-1)?.to).toBe("2026-07-18");
+    for (const p of parts) {
+      const w = resolveSyncRange(p);
+      expect(w.toMs! - w.fromMs!).toBeLessThanOrEqual(CEX_TRANSPORT_MAX_SPAN_MS);
+    }
+    // LUNC ignores split — single call
+    expect(
+      syncRangesForSource("lunc_stake", {
+        mode: "custom",
+        from: "2022-01-01",
+        to: "2026-07-18",
+      }),
+    ).toHaveLength(1);
+    // Binance gets split
+    expect(
+      syncRangesForSource("binance", {
+        mode: "custom",
+        from: "2022-01-01",
+        to: "2026-07-18",
+      }).length,
+    ).toBeGreaterThan(10);
+  });
+
   it("rejects inverted or incomplete custom ranges", () => {
     expect(() =>
       resolveSyncRange({ mode: "custom", from: "2024-08-01", to: "2024-07-01" }),

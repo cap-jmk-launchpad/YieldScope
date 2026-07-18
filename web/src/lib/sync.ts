@@ -1,11 +1,16 @@
 import { createPublicClient, http, type Address, type Hex } from "viem";
-import { fetchBinanceEarnEvents } from "./adapters/binance";
-import { fetchOkxEarnEvents } from "./adapters/okx";
+import {
+  BinanceAdapterError,
+  fetchBinanceEarnEvents,
+} from "./adapters/binance";
+import { fetchOkxEarnEvents, OkxAdapterError } from "./adapters/okx";
 import {
   fetchMonadStakeEarnEvents,
   type RpcCall,
 } from "./adapters/monad-stake";
-import { fetchLuncStakeEarnEvents } from "./adapters/lunc-stake";
+import {
+  fetchLuncStakeEarnEvents,
+} from "./adapters/lunc-stake";
 import type {
   AdapterResult,
   CexCredentials,
@@ -33,7 +38,11 @@ function useFixtures(): boolean {
 }
 
 /** Strip infra jargon from adapter failures before they reach the UI. */
-function userFacingAdapterError(err: unknown, fallback: string): string {
+export function userFacingAdapterError(err: unknown, fallback: string): string {
+  // Always keep typed CEX adapter errors (incl. "Malformed …" / HTTP bodies).
+  if (err instanceof BinanceAdapterError || err instanceof OkxAdapterError) {
+    return err.message;
+  }
   const raw = err instanceof Error ? err.message : String(err);
   // Keep exchange-authored auth hints (incl. OKX 501xx / "OKX HTTP …").
   if (

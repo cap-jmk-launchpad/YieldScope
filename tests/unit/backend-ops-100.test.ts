@@ -125,7 +125,7 @@ describe("backend-ops 100% branch closers", () => {
     delete process.env.OKX_API_BASE;
     resetOkxBaseCache();
     const fetchMock = vi.fn(async (url: string) => {
-      if (String(url).startsWith("https://www.okx.com")) {
+      if (String(url).startsWith("https://eea.okx.com")) {
         return {
           ok: true,
           status: 200,

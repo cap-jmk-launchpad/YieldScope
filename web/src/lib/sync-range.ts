@@ -57,6 +57,13 @@ export const BINANCE_MAX_WINDOW_MS = 30 * DAY_MS;
 export const ALL_TIME_LOOKBACK_MS = 5 * 365 * DAY_MS;
 
 /**
+ * Max span per HTTP `/api/sync` call for CEX custom ranges.
+ * Multi-year windows are split client-side so each request stays under the
+ * edge proxy read timeout (Binance ≤30d chunks × N + OKX paging).
+ */
+export const CEX_TRANSPORT_MAX_SPAN_MS = 90 * DAY_MS;
+
+/**
  * Overlap when incrementally syncing from the last high-water mark so late
  * exchange rows near the cursor are not missed.
  */
@@ -69,23 +76,96 @@ export class SyncRangeError extends Error {
   }
 }
 
-function parseBound(value: string, endOfDay: boolean): number {
+/**
+ * Normalize UI/API date strings to `YYYY-MM-DD` when possible.
+ * Accepts ISO date-only, ISO-8601, and common EU forms (`DD.MM.YYYY`, `DD/MM/YYYY`).
+ */
+export function normalizeDateInput(value: string): string {
   const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const eu = trimmed.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+  if (eu) {
+    const dd = eu[1].padStart(2, "0");
+    const mm = eu[2].padStart(2, "0");
+    return `${eu[3]}-${mm}-${dd}`;
+  }
+  // Keep ISO-8601 datetimes intact (exact instant); only EU / date-only normalize.
+  return trimmed;
+}
+
+function parseBound(value: string, endOfDay: boolean): number {
+  const normalized = normalizeDateInput(value);
   // Date-only → treat as UTC day bounds
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
     const ms = Date.parse(
-      endOfDay ? `${trimmed}T23:59:59.999Z` : `${trimmed}T00:00:00.000Z`,
+      endOfDay
+        ? `${normalized}T23:59:59.999Z`
+        : `${normalized}T00:00:00.000Z`,
     );
     if (Number.isNaN(ms)) {
       throw new SyncRangeError(`Invalid date: ${value}`);
     }
     return ms;
   }
-  const ms = Date.parse(trimmed);
+  const ms = Date.parse(normalized);
   if (Number.isNaN(ms)) {
     throw new SyncRangeError(`Invalid date: ${value}`);
   }
   return ms;
+}
+
+/** UTC calendar date `YYYY-MM-DD` for a millisecond instant. */
+export function dateOnlyUtc(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Split a multi-year custom range into ≤90-day HTTP transport windows
+ * (oldest → newest) so each `/api/sync` finishes under the proxy timeout.
+ */
+export function splitCustomRangeForTransport(
+  from: string,
+  to: string,
+  maxSpanMs = CEX_TRANSPORT_MAX_SPAN_MS,
+): SyncRange[] {
+  const window = resolveSyncRange({
+    mode: "custom",
+    from: normalizeDateInput(from),
+    to: normalizeDateInput(to),
+  });
+  if (window.fromMs == null || window.toMs == null) {
+    return [{ mode: "custom", from, to }];
+  }
+  // Reuse Binance-style chunking (newest-first), then reverse for UX/progress.
+  const chunks = chunkTimeRange(window.fromMs, window.toMs, maxSpanMs);
+  return [...chunks].reverse().map((c) => ({
+    mode: "custom" as const,
+    from: dateOnlyUtc(c.startMs),
+    to: dateOnlyUtc(c.endMs),
+  }));
+}
+
+/**
+ * Ranges the dashboard should POST per source.
+ * CEX custom multi-year → split; LUNC/Monad → single call (range ignored).
+ */
+export function syncRangesForSource(
+  source: string,
+  range: SyncRange,
+): SyncRange[] {
+  if (isPointInTimeSource(source)) return [range];
+  if (range.mode !== "custom" || !range.from || !range.to) return [range];
+  const from = normalizeDateInput(range.from);
+  const to = normalizeDateInput(range.to);
+  const window = resolveSyncRange({ mode: "custom", from, to });
+  if (
+    window.fromMs == null ||
+    window.toMs == null ||
+    window.toMs - window.fromMs <= CEX_TRANSPORT_MAX_SPAN_MS
+  ) {
+    return [{ mode: "custom", from, to }];
+  }
+  return splitCustomRangeForTransport(from, to);
 }
 
 /**
@@ -179,7 +259,11 @@ export function buildSyncRangeFromUi(
   if (mode === "all") {
     return forceFull ? { mode: "all", forceFull: true } : { mode: "all" };
   }
-  return { mode: "custom", from, to };
+  return {
+    mode: "custom",
+    from: normalizeDateInput(from),
+    to: normalizeDateInput(to),
+  };
 }
 
 /**
