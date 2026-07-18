@@ -37,10 +37,21 @@ if (!existsSync(checkScript)) {
   process.exit(0);
 }
 
+// Isolate from any concurrent agent `pnpm test:coverage` so V8 merge does not
+ // ENOENT on a shared coverage/.tmp/coverage-N.json (common on Windows).
+const hookCoverageDir = join(
+  "coverage",
+  ".runs",
+  `hook-${process.pid}-${Date.now().toString(36)}`,
+).replace(/\\/g, "/");
+
 const result = spawnSync(process.execPath, [checkScript], {
   cwd: projectRoot,
   encoding: "utf8",
-  env: process.env,
+  env: {
+    ...process.env,
+    COVERAGE_DIR: hookCoverageDir,
+  },
   timeout: 240_000,
 });
 

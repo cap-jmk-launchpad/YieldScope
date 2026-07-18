@@ -7,19 +7,41 @@
  * Usage: node scripts/check-coverage.mjs
  *        (runs `pnpm exec vitest run --coverage` first unless --summary-only)
  *
- * Optional: COVERAGE_DIR=coverage-agent to isolate reports from concurrent Vitest runs.
+ * Isolation: each run uses a unique reportsDirectory under coverage/.runs/
+ * so concurrent Vitest processes (agent + stop-hook, parallel agents) cannot
+ * delete each other's coverage/.tmp/coverage-N.json (Windows ENOENT race).
+ *
+ * Override with COVERAGE_DIR=... (also accepted for --summary-only).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const coverageDir = process.env.COVERAGE_DIR || "coverage";
-const summaryPath = join(root, coverageDir, "coverage-summary.json");
+const summaryOnly = process.argv.includes("--summary-only");
 const GLOBAL_THRESHOLD = 80;
 const BACKEND_OPS_THRESHOLD = 100;
-const summaryOnly = process.argv.includes("--summary-only");
+
+/** Stable publish path for HTML / summary consumers after an isolated run. */
+const PUBLISH_DIR = "coverage";
+const RUNS_ROOT = join(PUBLISH_DIR, ".runs");
+
+function allocateCoverageDir() {
+  if (process.env.COVERAGE_DIR) return process.env.COVERAGE_DIR;
+  const id = `${process.pid}-${Date.now().toString(36)}`;
+  return join(RUNS_ROOT, id).replace(/\\/g, "/");
+}
+
+const coverageDir = allocateCoverageDir();
+const summaryPath = join(root, coverageDir, "coverage-summary.json");
 
 function isBackendOpsFile(filePath) {
   const norm = filePath.replace(/\\/g, "/");
@@ -34,7 +56,30 @@ function isBackendOpsFile(filePath) {
   );
 }
 
+function pruneStaleRuns(maxAgeMs = 60 * 60 * 1000) {
+  if (!existsSync(join(root, RUNS_ROOT))) return;
+  const now = Date.now();
+  for (const name of readdirSync(join(root, RUNS_ROOT))) {
+    const full = join(root, RUNS_ROOT, name);
+    const m = /^(\d+)-/.exec(name);
+    const started = m ? Number(m[1]) : 0;
+    // name is pid-timestamp36 — prefer mtime via trying Date from second segment
+    try {
+      const ageHint = Number.parseInt(name.split("-").slice(1).join(""), 36);
+      const stamp = Number.isFinite(ageHint) ? ageHint : started;
+      if (stamp > 1e12 && now - stamp > maxAgeMs) {
+        rmSync(full, { recursive: true, force: true });
+      }
+    } catch {
+      /* ignore prune errors */
+    }
+  }
+}
+
 function runVitestCoverage() {
+  mkdirSync(join(root, coverageDir), { recursive: true });
+  pruneStaleRuns();
+
   const result = spawnSync(
     "pnpm",
     [
@@ -43,17 +88,35 @@ function runVitestCoverage() {
       "run",
       "--coverage",
       `--coverage.reportsDirectory=${coverageDir}`,
+      "--coverage.processingConcurrency=1",
     ],
     {
       cwd: root,
       stdio: "inherit",
       shell: true,
-      env: process.env,
+      env: {
+        ...process.env,
+        COVERAGE_DIR: coverageDir,
+        // Cap workers on Windows to reduce .tmp write storms under Defender.
+        ...(process.platform === "win32" && !process.env.VITEST_MAX_WORKERS
+          ? { VITEST_MAX_WORKERS: "4" }
+          : {}),
+      },
     },
   );
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function publishSummary() {
+  if (coverageDir === PUBLISH_DIR || coverageDir.replace(/\\/g, "/") === PUBLISH_DIR) {
+    return;
+  }
+  const src = join(root, coverageDir, "coverage-summary.json");
+  if (!existsSync(src)) return;
+  mkdirSync(join(root, PUBLISH_DIR), { recursive: true });
+  writeFileSync(join(root, PUBLISH_DIR, "coverage-summary.json"), readFileSync(src));
 }
 
 function readSummary() {
@@ -86,6 +149,7 @@ function checkThreshold(label, pct, threshold) {
 
 if (!summaryOnly) {
   runVitestCoverage();
+  publishSummary();
 }
 
 const summary = readSummary();

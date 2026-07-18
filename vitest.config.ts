@@ -22,10 +22,18 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/unit/**/*.test.ts"],
+    // Windows + AV: parallel V8 coverage merges can ENOENT on coverage/.tmp/*.json
+    // when multiple workers flush concurrently. Keep merge reads serial.
+    fileParallelism: true,
+    maxWorkers: process.env.VITEST_MAX_WORKERS
+      ? Number(process.env.VITEST_MAX_WORKERS)
+      : undefined,
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "html"],
-      reportsDirectory: "coverage",
+      reportsDirectory: process.env.COVERAGE_DIR || "coverage",
+      // Serialize coverage file reads/writes — avoids ENOENT races on Windows.
+      processingConcurrency: 1,
       include: coverageInclude,
       exclude: [
         "**/*.d.ts",

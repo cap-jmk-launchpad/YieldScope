@@ -25,6 +25,11 @@ export interface SyncPricesOptions {
   minuteLookbackDays?: number;
   /** Days of 1d history on backfill (default 730 ≈ 2y). */
   dailyLookbackDays?: number;
+  /**
+   * Pause between kline pages during backfill (default 80ms).
+   * Tests should pass 0 to avoid timer/hang flakiness.
+   */
+  sleepMs?: number;
 }
 
 export interface SyncPricesResult {
@@ -42,6 +47,7 @@ async function syncSymbolInterval(opts: {
   backfill: boolean;
   lookbackMs: number;
   fetchImpl?: typeof fetch;
+  sleepMs?: number;
 }): Promise<{ written: number; error?: string }> {
   try {
     const maxOpen = await loadMaxOpenTime(opts.symbol, opts.interval);
@@ -56,6 +62,7 @@ async function syncSymbolInterval(opts: {
         startMs,
         endMs: now,
         fetchImpl: opts.fetchImpl,
+        sleepMs: opts.sleepMs,
       });
     } else {
       // Incremental: from last candle (re-upsert last bar) through now

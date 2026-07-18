@@ -145,6 +145,27 @@ describe("sync with persistence", () => {
     );
   });
 
+  it("syncLuncStake fixture tolerates missing tx_responses", async () => {
+    const { readFileSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const path = join("tests/fixtures/lunc/withdraw-txs-sample.json");
+    const original = readFileSync(path, "utf8");
+    try {
+      writeFileSync(path, "{}");
+      const { syncLuncStake } = await import("../../web/src/lib/sync");
+      const result = await syncLuncStake(
+        "terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a",
+        { userId: "u1" },
+      );
+      expect(result.status).toBe("ok");
+      expect(
+        result.events.some((e) => e.rawType === "pending_total_reward"),
+      ).toBe(true);
+    } finally {
+      writeFileSync(path, original);
+    }
+  });
+
   it("live binance sync uses fetch when fixtures off", async () => {
     process.env.USE_FIXTURE_DEMO = "0";
     vi.stubGlobal(

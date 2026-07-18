@@ -11,6 +11,7 @@ import {
   fcdCandidates,
   fcdTxToLcdShape,
   fetchLuncStakeEarnEvents,
+  lcdCandidates,
   luncHistoryChunks,
   microToHuman,
   normalizeLuncRewards,
@@ -1518,5 +1519,581 @@ describe("LUNC (Terra Classic) stake adapter", () => {
         }) as unknown as typeof fetch,
       }),
     ).rejects.toThrow(/Malformed FCD/);
+  });
+
+  it("fcdTxToLcdShape tolerates null logs and missing log.events", () => {
+    expect(
+      fcdTxToLcdShape({
+        txhash: "NULOGS",
+        timestamp: "2026-01-01T00:00:00Z",
+        logs: null,
+      }).events,
+    ).toEqual([]);
+    expect(
+      fcdTxToLcdShape({
+        txhash: "NOEV",
+        timestamp: "2026-01-01T00:00:00Z",
+        logs: [{}],
+      }).events,
+    ).toEqual([]);
+  });
+
+  it("lcdCandidates and fcdCandidates skip empty URLs", () => {
+    process.env.LUNC_LCD_FALLBACKS = "";
+    process.env.LUNC_FCD_FALLBACKS = "";
+    expect(lcdCandidates("")).toEqual([]);
+    expect(fcdCandidates("")).toEqual([]);
+    expect(lcdCandidates("https://lcd.a/")).toEqual(["https://lcd.a"]);
+    delete process.env.LUNC_LCD_FALLBACKS;
+    delete process.env.LUNC_FCD_FALLBACKS;
+  });
+
+  it("parseLowestHeightMessage rejects non-positive heights", () => {
+    expect(parseLowestHeightMessage("lowest height is 0")).toBeNull();
+    expect(parseLowestHeightMessage("lowest height is NaN")).toBeNull();
+  });
+
+  it("crawlFcdAccountTxs covers empty/dupe/missing-hash pages and global fetch", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    const empty = await crawlFcdAccountTxs(ADDR, {
+      fcdUrl: "https://fcd.example",
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ txs: [], next: null }),
+      }) as unknown as typeof fetch,
+    });
+    expect(empty).toEqual([]);
+
+    const tx = {
+      txhash: "SAMEFCD",
+      timestamp: "2026-07-01T00:00:00Z",
+      logs: [],
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          next: 2,
+          txs: [
+            tx,
+            { timestamp: "2026-07-01T00:00:00Z", logs: [] }, // no hash
+            { ...tx }, // dupe
+            { txhash: "NOTIMEFCD", logs: [] }, // no timestamp
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ next: null, txs: [tx] }), // all dupes → newCount 0
+      });
+    const txs = await crawlFcdAccountTxs(ADDR, {
+      fcdUrl: "https://fcd.example/",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(txs.map((t) => t.txhash).sort()).toEqual(["NOTIMEFCD", "SAMEFCD"]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    // early-stop every() with missing timestamps
+    const early = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        next: 9,
+        txs: [
+          { txhash: "OLD", timestamp: "2020-01-01T00:00:00Z", logs: [] },
+          { txhash: "GAP", logs: [] },
+        ],
+      }),
+    });
+    await crawlFcdAccountTxs(ADDR, {
+      fcdUrl: "https://fcd.example",
+      fetchImpl: early as unknown as typeof fetch,
+      startMs: Date.parse("2025-01-01T00:00:00Z"),
+    });
+    // Missing timestamp prevents early-stop; page 2 yields only dupes → stop.
+    expect(early).toHaveBeenCalledTimes(2);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ txs: [], next: null }),
+      }),
+    );
+    expect(
+      await crawlFcdAccountTxs(ADDR, { fcdUrl: "https://fcd.example" }),
+    ).toEqual([]);
+    vi.unstubAllGlobals();
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+  });
+
+  it("fetchLuncStakeEarnEvents covers FCD soft/hard errors and empty candidates", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    process.env.LUNC_FCD_FALLBACKS = "";
+    process.env.LUNC_LCD_FALLBACKS = "";
+
+    await expect(
+      fetchLuncStakeEarnEvents(ADDR, {
+        fcdUrl: "",
+        historySource: "fcd",
+        includePending: false,
+        startMs: Date.now() - 1000,
+        endMs: Date.now(),
+      }),
+    ).rejects.toThrow(/No Terra Classic FCD/);
+
+    await expect(
+      fetchLuncStakeEarnEvents(ADDR, {
+        fcdUrl: "https://fcd.example",
+        historySource: "fcd",
+        includePending: false,
+        startMs: Date.now() - 1000,
+        endMs: Date.now(),
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: false,
+          status: 503,
+          text: async () => "down",
+        }) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/FCD HTTP 503/);
+
+    await expect(
+      fetchLuncStakeEarnEvents(ADDR, {
+        fcdUrl: "https://fcd.example",
+        historySource: "fcd",
+        includePending: false,
+        startMs: Date.now() - 1000,
+        endMs: Date.now(),
+        fetchImpl: vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ txs: "nope" }),
+        }) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/Malformed FCD/);
+
+    await expect(
+      fetchLuncStakeEarnEvents(ADDR, {
+        lcdUrl: "",
+        historySource: "lcd",
+        includePending: false,
+        startMs: Date.now() - 1000,
+        endMs: Date.now(),
+        fetchImpl: vi.fn() as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/No Terra Classic LCD/);
+
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+    delete process.env.LUNC_FCD_FALLBACKS;
+    delete process.env.LUNC_LCD_FALLBACKS;
+  });
+
+  it("fetchLuncStakeEarnEvents filters FCD window, dedupes, prune clamp, soft LCD errors", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    process.env.LUNC_FCD_FALLBACKS = "";
+    process.env.LUNC_LCD_FALLBACKS = "https://lcd-fallback.example";
+    const nowMs = Date.parse("2026-07-18T00:00:00Z");
+    const startMs = Date.parse("2026-07-01T00:00:00Z");
+    const withdrawAttrs = [
+      { key: "amount", value: "1000000uluna" },
+      { key: "delegator", value: ADDR },
+      { key: "validator", value: "terravaloper1z" },
+      { key: "msg_index", value: "0" },
+    ];
+    const inWin = {
+      txhash: "FCDIN",
+      timestamp: "2026-07-10T00:00:00Z",
+      logs: [{ events: [{ type: "withdraw_rewards", attributes: withdrawAttrs }] }],
+    };
+    const outWin = {
+      txhash: "FCDOUT",
+      timestamp: "2025-01-01T00:00:00Z",
+      logs: [{ events: [{ type: "withdraw_rewards", attributes: withdrawAttrs }] }],
+    };
+    const dupIn = {
+      ...inWin,
+      txhash: "FCDDUP",
+      logs: [
+        {
+          events: [
+            { type: "withdraw_rewards", attributes: withdrawAttrs },
+            { type: "withdraw_rewards", attributes: withdrawAttrs },
+          ],
+        },
+      ],
+    };
+
+    const fetchImpl = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/v1/txs")) {
+        return {
+          ok: true,
+          json: async () => ({ next: null, txs: [inWin, outWin, dupIn] }),
+        };
+      }
+      if (u.includes("/rewards")) {
+        return {
+          ok: true,
+          json: async () => ({
+            total: [{ denom: "uluna", amount: "1000000" }],
+          }),
+        };
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+
+    const events = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.example",
+      lcdUrl: "https://lcd.example",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      startMs,
+      endMs: nowMs,
+      nowMs,
+      includePending: true,
+    });
+    expect(events.some((e) => e.meta?.txhash === "FCDOUT")).toBe(false);
+    expect(events.filter((e) => e.meta?.txhash === "FCDIN")).toHaveLength(1);
+    expect(events.filter((e) => e.meta?.txhash === "FCDDUP")).toHaveLength(1);
+
+    // LCD path: prune height above estimated max → heightMin > heightMax skip;
+    // primary throws non-adapter then typed soft error; fallback ok + blocks/1 ok;
+    // text() rejection on prune probe.
+    let primaryHits = 0;
+    const lcdFetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("lcd.primary") && u.includes("/blocks/latest")) {
+        primaryHits += 1;
+        if (primaryHits === 1) throw new TypeError("socket reset");
+        return { ok: false, status: 502, text: async () => "bad gateway" };
+      }
+      if (u.includes("/blocks/latest")) {
+        return {
+          ok: true,
+          json: async () => ({
+            block: {
+              header: {
+                height: "1000",
+                time: new Date(nowMs).toISOString(),
+              },
+            },
+          }),
+        };
+      }
+      if (u.includes("/blocks/1")) {
+        if (u.includes("lcd-fallback")) {
+          return { ok: true, json: async () => ({ block: {} }) }; // prune = 1
+        }
+        return {
+          ok: false,
+          status: 500,
+          text: async () => {
+            throw new Error("no body");
+          },
+        };
+      }
+      if (u.includes("/cosmos/tx/v1beta1/txs")) {
+        return { ok: true, json: async () => ({ tx_responses: [] }) };
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+
+    // First: TypeError from primary must propagate (non-LuncAdapterError)
+    await expect(
+      fetchLuncStakeEarnEvents(ADDR, {
+        fcdUrl: "https://fcd.down",
+        lcdUrl: "https://lcd.primary.example",
+        fetchImpl: lcdFetch as unknown as typeof fetch,
+        historySource: "lcd",
+        startMs: nowMs - 60_000,
+        endMs: nowMs,
+        nowMs,
+        includePending: false,
+      }),
+    ).rejects.toThrow(TypeError);
+
+    // Soft 502 on primary → fallback; prune ok path; extreme prune clamp
+    const clampFetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/v1/txs")) {
+        return { ok: false, status: 503, text: async () => "" };
+      }
+      if (u.includes("/blocks/latest")) {
+        return {
+          ok: true,
+          json: async () => ({
+            block: {
+              header: {
+                height: "10000",
+                time: new Date(nowMs).toISOString(),
+              },
+            },
+          }),
+        };
+      }
+      if (u.includes("/blocks/1")) {
+        return {
+          ok: false,
+          status: 500,
+          text: async () => "lowest height is 999999999",
+        };
+      }
+      if (u.includes("/cosmos/tx/v1beta1/txs")) {
+        return { ok: true, json: async () => ({ tx_responses: [] }) };
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+    const clamped = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.down",
+      lcdUrl: "https://lcd.example",
+      fetchImpl: clampFetch as unknown as typeof fetch,
+      historySource: "auto",
+      startMs: nowMs - 60_000,
+      endMs: nowMs,
+      nowMs,
+      includePending: false,
+      latestBlock: { height: 10_000, timeMs: nowMs },
+    });
+    expect(clamped).toEqual([]);
+
+    // Soft HTTP on primary LCD → try fallback; /blocks/1 ok → prune=1; text() catch
+    process.env.LUNC_LCD_FALLBACKS = "https://lcd-fallback.example";
+    let pruneTextRejects = false;
+    const softLcd = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/v1/txs")) {
+        return { ok: false, status: 503, text: async () => "" };
+      }
+      if (u.includes("lcd.primary") && u.includes("/blocks/latest")) {
+        return { ok: false, status: 502, text: async () => "bad gateway" };
+      }
+      if (u.includes("/blocks/latest")) {
+        return {
+          ok: true,
+          json: async () => ({
+            block: {
+              header: {
+                height: "29550000",
+                time: new Date(nowMs).toISOString(),
+              },
+            },
+          }),
+        };
+      }
+      if (u.includes("/blocks/1")) {
+        if (!pruneTextRejects) {
+          pruneTextRejects = true;
+          return {
+            ok: false,
+            status: 500,
+            text: async () => {
+              throw new Error("no body");
+            },
+          };
+        }
+        return { ok: true, json: async () => ({ block: {} }) };
+      }
+      if (u.includes("/cosmos/tx/v1beta1/txs")) {
+        return { ok: true, json: async () => ({ tx_responses: [] }) };
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+    const softOk = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.down",
+      lcdUrl: "https://lcd.primary.example",
+      fetchImpl: softLcd as unknown as typeof fetch,
+      historySource: "lcd",
+      startMs: nowMs - 60_000,
+      endMs: nowMs,
+      nowMs,
+      includePending: false,
+    });
+    expect(softOk).toEqual([]);
+    expect(
+      softLcd.mock.calls.some((c) => String(c[0]).includes("lcd-fallback")),
+    ).toBe(true);
+
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+    delete process.env.LUNC_FCD_FALLBACKS;
+    delete process.env.LUNC_LCD_FALLBACKS;
+  });
+
+  it("fetchLuncStakeEarnEvents pending soft-fallback and typed rethrows", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    process.env.LUNC_FCD_FALLBACKS = "";
+    process.env.LUNC_LCD_FALLBACKS = "https://lcd-b.example";
+    const nowMs = Date.parse("2026-07-18T00:00:00Z");
+
+    // FCD history ok; pending primary soft-fails then fallback; empty lcd list → pending ?? []
+    const fcdOk = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/v1/txs")) {
+        return { ok: true, json: async () => ({ next: null, txs: [] }) };
+      }
+      if (u.includes("lcd-a") && u.includes("/rewards")) {
+        return { ok: false, status: 502, text: async () => "soft" };
+      }
+      if (u.includes("/rewards")) {
+        return {
+          ok: true,
+          json: async () => ({
+            total: [{ denom: "uluna", amount: "1000000" }],
+          }),
+        };
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+    const withPending = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.example",
+      lcdUrl: "https://lcd-a.example",
+      fetchImpl: fcdOk as unknown as typeof fetch,
+      startMs: nowMs - 60_000,
+      endMs: nowMs,
+      nowMs,
+      includePending: true,
+    });
+    expect(withPending.some((e) => e.rawType === "pending_total_reward")).toBe(
+      true,
+    );
+
+    // pending TypeError propagates
+    await expect(
+      fetchLuncStakeEarnEvents(ADDR, {
+        fcdUrl: "https://fcd.example",
+        lcdUrl: "https://lcd.example",
+        fetchImpl: vi.fn(async (url: string) => {
+          const u = String(url);
+          if (u.includes("/v1/txs")) {
+            return { ok: true, json: async () => ({ next: null, txs: [] }) };
+          }
+          if (u.includes("/rewards")) throw new TypeError("rewards boom");
+          return { ok: false, status: 404, text: async () => "" };
+        }) as unknown as typeof fetch,
+        startMs: nowMs - 60_000,
+        endMs: nowMs,
+        nowMs,
+        includePending: true,
+      }),
+    ).rejects.toThrow(TypeError);
+
+    // pending malformed rewards rethrow
+    await expect(
+      fetchLuncStakeEarnEvents(ADDR, {
+        fcdUrl: "https://fcd.example",
+        lcdUrl: "https://lcd.example",
+        fetchImpl: vi.fn(async (url: string) => {
+          const u = String(url);
+          if (u.includes("/v1/txs")) {
+            return { ok: true, json: async () => ({ next: null, txs: [] }) };
+          }
+          if (u.includes("/rewards")) {
+            return {
+              ok: true,
+              json: async () => ({
+                total: [{ denom: "", amount: "1" }],
+              }),
+            };
+          }
+          return { ok: false, status: 404, text: async () => "" };
+        }) as unknown as typeof fetch,
+        startMs: nowMs - 60_000,
+        endMs: nowMs,
+        nowMs,
+        includePending: true,
+      }),
+    ).rejects.toThrow(LuncAdapterError);
+
+    // No LCD candidates for pending → empty pending merge (?? [])
+    process.env.LUNC_LCD_FALLBACKS = "";
+    const noLcdPending = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.example",
+      lcdUrl: "",
+      fetchImpl: vi.fn(async (url: string) => {
+        if (String(url).includes("/v1/txs")) {
+          return { ok: true, json: async () => ({ next: null, txs: [] }) };
+        }
+        return { ok: false, status: 404, text: async () => "" };
+      }) as unknown as typeof fetch,
+      startMs: nowMs - 60_000,
+      endMs: nowMs,
+      nowMs,
+      includePending: true,
+    });
+    expect(noLcdPending).toEqual([]);
+
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+    delete process.env.LUNC_FCD_FALLBACKS;
+    delete process.env.LUNC_LCD_FALLBACKS;
+  });
+
+  it("detectLcdPruneHeight returns 1 when genesis block is available", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    process.env.LUNC_FCD_FALLBACKS = "";
+    process.env.LUNC_LCD_FALLBACKS = "";
+    const nowMs = Date.now();
+    const fetchImpl = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/v1/txs")) {
+        return { ok: false, status: 503, text: async () => "" };
+      }
+      if (u.includes("/blocks/1")) {
+        return { ok: true, json: async () => ({ block: { header: { height: "1" } } }) };
+      }
+      if (u.includes("/cosmos/tx/v1beta1/txs")) {
+        return { ok: true, json: async () => ({ tx_responses: [] }) };
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+    const events = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.down",
+      lcdUrl: "https://lcd.example",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      historySource: "lcd",
+      startMs: nowMs - 60_000,
+      endMs: nowMs,
+      nowMs,
+      includePending: false,
+      latestBlock: { height: 1000, timeMs: nowMs },
+    });
+    expect(events).toEqual([]);
+    expect(
+      fetchImpl.mock.calls.some((c) => String(c[0]).includes("/blocks/1")),
+    ).toBe(true);
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+    delete process.env.LUNC_FCD_FALLBACKS;
+    delete process.env.LUNC_LCD_FALLBACKS;
+  });
+
+  it("detectLcdPruneHeight swallows probe failures via soft LCD crawl", async () => {
+    process.env.LUNC_TX_PAGE_PAUSE_MS = "0";
+    process.env.LUNC_FCD_FALLBACKS = "";
+    process.env.LUNC_LCD_FALLBACKS = "";
+    const nowMs = Date.now();
+    const fetchImpl = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/v1/txs")) {
+        return { ok: false, status: 503, text: async () => "" };
+      }
+      if (u.includes("/blocks/1")) {
+        throw new Error("network");
+      }
+      if (u.includes("/cosmos/tx/v1beta1/txs")) {
+        return { ok: true, json: async () => ({ tx_responses: [] }) };
+      }
+      return { ok: false, status: 404, text: async () => "" };
+    });
+    const events = await fetchLuncStakeEarnEvents(ADDR, {
+      fcdUrl: "https://fcd.down",
+      lcdUrl: "https://lcd.example",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      historySource: "lcd",
+      startMs: nowMs - 60_000,
+      endMs: nowMs,
+      nowMs,
+      includePending: false,
+      latestBlock: { height: 1000, timeMs: nowMs },
+    });
+    expect(events).toEqual([]);
+    delete process.env.LUNC_TX_PAGE_PAUSE_MS;
+    delete process.env.LUNC_FCD_FALLBACKS;
+    delete process.env.LUNC_LCD_FALLBACKS;
   });
 });

@@ -77,13 +77,15 @@ const TERRA_ADDR_RE = /terra1[0-9a-z]{38,58}/i;
 const DEFAULT_LCD =
   process.env.LUNC_LCD_URL ?? "https://terra-classic-lcd.publicnode.com";
 /** Fallback LCD when the primary fails hard on tx search. */
-const FALLBACK_LCDS = (
-  process.env.LUNC_LCD_FALLBACKS ??
-  "https://api-lunc-lcd.binodes.com,https://terra-classic-lcd.publicnode.com"
-)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+function fallbackLcds(): string[] {
+  return (
+    process.env.LUNC_LCD_FALLBACKS ??
+    "https://api-lunc-lcd.binodes.com,https://terra-classic-lcd.publicnode.com"
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 /**
  * FCD (Finder Consumer Data) indexes account txs beyond public LCD prune
@@ -91,13 +93,15 @@ const FALLBACK_LCDS = (
  */
 const DEFAULT_FCD =
   process.env.LUNC_FCD_URL ?? "https://terra-classic-fcd.publicnode.com";
-const FALLBACK_FCDS = (
-  process.env.LUNC_FCD_FALLBACKS ??
-  "https://fcd.terra-classic.hexxagon.io,https://terra-classic-fcd.publicnode.com"
-)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+function fallbackFcds(): string[] {
+  return (
+    process.env.LUNC_FCD_FALLBACKS ??
+    "https://fcd.terra-classic.hexxagon.io,https://terra-classic-fcd.publicnode.com"
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 /** Terra Classic tends toward ~6s blocks; used only for height window hints. */
 const BLOCK_TIME_MS = Number(process.env.LUNC_BLOCK_TIME_MS ?? 6000);
@@ -734,12 +738,12 @@ async function fetchPendingRewards(
 
 /** Deduped primary + env fallback LCD base URLs (trailing slash stripped). */
 export function lcdCandidates(primary: string): string[] {
-  const list = [primary, ...FALLBACK_LCDS.map((s) => s.replace(/\/$/, ""))];
+  const list = [primary, ...fallbackLcds().map((s) => s.replace(/\/$/, ""))];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const lcd of list) {
     const n = lcd.replace(/\/$/, "");
-    if (seen.has(n)) continue;
+    if (!n || seen.has(n)) continue;
     seen.add(n);
     out.push(n);
   }
@@ -748,7 +752,7 @@ export function lcdCandidates(primary: string): string[] {
 
 /** Deduped primary + env fallback FCD base URLs. */
 export function fcdCandidates(primary: string): string[] {
-  const list = [primary, ...FALLBACK_FCDS.map((s) => s.replace(/\/$/, ""))];
+  const list = [primary, ...fallbackFcds().map((s) => s.replace(/\/$/, ""))];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const fcd of list) {
@@ -946,6 +950,7 @@ export async function fetchLuncStakeEarnEvents(
     historyOk = true;
   }
 
+  /* v8 ignore next — defensive: fcd-only throws above; lcd path returns or throws */
   if (!historyOk && lastErr) throw lastErr;
 
   const out = [...history];

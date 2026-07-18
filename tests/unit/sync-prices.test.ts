@@ -17,16 +17,19 @@ vi.mock("../../web/src/lib/prices/price-db", () => ({
 describe("syncPrices", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     upsertOhlcvCandles.mockResolvedValue(2);
+    // Default: pretend history exists so backfill=false paths stay incremental
+    // and do not walk multi-page ranges with the default 80ms sleep.
+    loadMaxOpenTime.mockResolvedValue("2026-07-18T08:00:00.000Z");
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.clearAllMocks();
   });
 
   it("incremental mode fetches recent candles when history exists", async () => {
-    loadMaxOpenTime.mockResolvedValue("2026-07-18T08:00:00.000Z");
-
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       json: async () => [
@@ -48,6 +51,7 @@ describe("syncPrices", () => {
       symbols: ["BTCUSDT"],
       fetchImpl: fetchImpl as unknown as typeof fetch,
       backfill: false,
+      sleepMs: 0,
     });
 
     expect(result.written).toBeGreaterThan(0);
@@ -73,6 +77,7 @@ describe("syncPrices", () => {
       backfill: true,
       minuteLookbackDays: 1,
       dailyLookbackDays: 1,
+      sleepMs: 0,
     });
 
     expect(result.errors.length).toBeGreaterThan(0);
@@ -85,13 +90,13 @@ describe("syncPrices", () => {
       "../../web/src/lib/prices/price-db"
     );
 
-    loadMaxOpenTime.mockResolvedValue("2026-07-18T08:00:00.000Z");
     const hard = await syncPrices({
       symbols: ["BTCUSDT"],
       fetchImpl: (async () => {
         throw new Error("network down");
       }) as unknown as typeof fetch,
       backfill: false,
+      sleepMs: 0,
     });
     expect(hard.errors.some((e) => /network down/.test(e.error))).toBe(true);
 
@@ -109,6 +114,7 @@ describe("syncPrices", () => {
       backfill: true,
       minuteLookbackDays: 1,
       dailyLookbackDays: 1,
+      sleepMs: 0,
     });
     expect(persistFail.errors.some((e) => /db down/.test(e.error))).toBe(true);
 
@@ -125,6 +131,7 @@ describe("syncPrices", () => {
       backfill: true,
       minuteLookbackDays: 1,
       dailyLookbackDays: 1,
+      sleepMs: 0,
     });
     expect(stringFail.errors.some((e) => e.error === "string-fail")).toBe(true);
   });
@@ -142,6 +149,7 @@ describe("syncPrices", () => {
       backfill: true,
       minuteLookbackDays: 1,
       dailyLookbackDays: 1,
+      sleepMs: 0,
     });
     expect(result.symbols).toEqual(
       expect.arrayContaining(["BTCUSDT", "ETHUSDT"]),
