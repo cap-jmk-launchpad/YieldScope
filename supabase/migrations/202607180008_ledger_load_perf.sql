@@ -1,5 +1,8 @@
 -- Faster ledger load path: earliest-earned for coverage hints + daily series for charts.
 -- Avoids shipping every earn_event row to the client on first paint.
+--
+-- Note: CREATE OR REPLACE VIEW cannot rename/reorder columns. Append first_earned_at
+-- after existing columns, or DROP + CREATE.
 
 create or replace view public.earn_aggregates_by_source as
 select
@@ -7,9 +10,9 @@ select
   source,
   count(*)::integer as event_count,
   sum(amount) as total_amount,
-  min(earned_at) as first_earned_at,
   max(earned_at) as last_earned_at,
-  max(as_of) as last_as_of
+  max(as_of) as last_as_of,
+  min(earned_at) as first_earned_at
 from public.earn_events
 group by profile_id, source;
 
