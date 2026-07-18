@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import type { EarnEvent } from "@/lib/adapters/types";
 import { AssetIcon } from "@/components/asset-icon";
+import { assetChartColor } from "@/lib/asset-color";
 import {
   chartDisplayUnit,
   earningsByCurrency,
@@ -26,18 +27,6 @@ import {
   type ConvertAmount,
   type EarningsChartOptions,
 } from "@/lib/earnings-charts";
-
-/** YieldScope palette — mint / warn / coral / slate; no purple. */
-const SLICE_COLORS = [
-  "#3dffa8",
-  "#f0a060",
-  "#e07a5f",
-  "#6eb5ff",
-  "#8a9bb0",
-  "#1a6b4a",
-  "#c4d4e8",
-  "#ff8f70",
-];
 
 export interface EarningsChartsProps {
   events: EarnEvent[];
@@ -259,10 +248,10 @@ export function EarningsCharts({
                     strokeWidth={2}
                     isAnimationActive={false}
                   >
-                    {byCurrency.map((slice, i) => (
+                    {byCurrency.map((slice) => (
                       <Cell
                         key={slice.asset}
-                        fill={SLICE_COLORS[i % SLICE_COLORS.length]}
+                        fill={assetChartColor(slice.asset)}
                       />
                     ))}
                   </Pie>
@@ -278,12 +267,12 @@ export function EarningsCharts({
                 </PieChart>
               </ResponsiveContainer>
               <ul className="chart-legend">
-                {byCurrency.map((slice, i) => (
+                {byCurrency.map((slice) => (
                   <li key={slice.asset}>
                     <span
                       className="chart-legend-swatch"
                       style={{
-                        background: SLICE_COLORS[i % SLICE_COLORS.length],
+                        background: assetChartColor(slice.asset),
                       }}
                     />
                     <AssetIcon symbol={slice.asset} size="sm" />
