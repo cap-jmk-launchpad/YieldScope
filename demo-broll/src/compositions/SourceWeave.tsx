@@ -6,9 +6,17 @@ import {
   useVideoConfig,
 } from "remotion";
 import { InkBackground } from "../components/InkBackground";
-import { clamp, easeExpressive, lerp, storyProgress, wrap01 } from "../motion";
+import { PolishStack } from "../components/PolishStack";
+import {
+  clamp,
+  easeExpressive,
+  idleBreathe,
+  lerp,
+  storyProgress,
+  wrap01,
+} from "../motion";
 import { oceanDrift, oceanHeight } from "../ocean";
-import { tokens } from "../tokens";
+import { tokens } from "../theme";
 
 const COLS = 96;
 const PARTICLE_ROWS = 3;
@@ -20,10 +28,11 @@ const PARTICLE_ROWS = 3;
  */
 export const SourceWeave: React.FC = () => {
   const frame = useCurrentFrame();
-  const { width, height, durationInFrames } = useVideoConfig();
+  const { width, height, durationInFrames, fps } = useVideoConfig();
   const t = frame / durationInFrames;
   const { converge, anticipate, hold } = storyProgress(t);
   const travel = wrap01(t);
+  const breathe = idleBreathe(frame, fps);
 
   const baseline = height * 0.52;
   const marginX = width * 0.06;
@@ -33,10 +42,11 @@ export const SourceWeave: React.FC = () => {
   const maxAmp = height * 0.22;
 
   // Weave: ocean amp collapses toward a calm center line → pulse
-  const oceanScale = interpolate(converge, [0, 1], [1, 0.08], {
-    ...clamp,
-    easing: easeExpressive,
-  });
+  const oceanScale =
+    interpolate(converge, [0, 1], [1, 0.08], {
+      ...clamp,
+      easing: easeExpressive,
+    }) * breathe;
   const spread = 1 + anticipate * 0.35;
   const calmPull = easeExpressive(converge);
 
@@ -163,15 +173,16 @@ export const SourceWeave: React.FC = () => {
   const foamLineOpacity = interpolate(converge, [0, 0.3, 0.7, 1], [0.15, 0.35, 0.2, 0.05], clamp);
 
   return (
-    <AbsoluteFill>
-      <InkBackground intensity={interpolate(converge, [0, 1], [0.95, 1.2], clamp)} />
+    <PolishStack>
       <AbsoluteFill>
-        <svg
-          width={width}
-          height={height}
-          viewBox={`0 0 ${width} ${height}`}
-          style={{ position: "absolute", inset: 0 }}
-        >
+        <InkBackground intensity={interpolate(converge, [0, 1], [0.95, 1.2], clamp)} />
+        <AbsoluteFill>
+          <svg
+            width={width}
+            height={height}
+            viewBox={`0 0 ${width} ${height}`}
+            style={{ position: "absolute", inset: 0 }}
+          >
           <defs>
             <linearGradient id="ow-bar" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={tokens.paper} stopOpacity="0.85" />
@@ -252,7 +263,8 @@ export const SourceWeave: React.FC = () => {
             opacity={pulseOpacity * 0.9}
           />
         </svg>
+        </AbsoluteFill>
       </AbsoluteFill>
-    </AbsoluteFill>
+    </PolishStack>
   );
 };

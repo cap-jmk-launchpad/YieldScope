@@ -2,7 +2,7 @@ import React from "react";
 import { Composition } from "remotion";
 import { ScatteredLedger } from "./compositions/ScatteredLedger";
 import { SourceWeave } from "./compositions/SourceWeave";
-import { VIDEO } from "./tokens";
+import { theme } from "./theme";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -10,18 +10,18 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="ScatteredLedger"
         component={ScatteredLedger}
-        durationInFrames={VIDEO.durationInFrames}
-        fps={VIDEO.fps}
-        width={VIDEO.width}
-        height={VIDEO.height}
+        durationInFrames={theme.video.durationInFrames}
+        fps={theme.video.fps}
+        width={theme.video.width}
+        height={theme.video.height}
       />
       <Composition
         id="SourceWeave"
         component={SourceWeave}
-        durationInFrames={VIDEO.durationInFrames}
-        fps={VIDEO.fps}
-        width={VIDEO.width}
-        height={VIDEO.height}
+        durationInFrames={theme.video.durationInFrames}
+        fps={theme.video.fps}
+        width={theme.video.width}
+        height={theme.video.height}
       />
     </>
   );

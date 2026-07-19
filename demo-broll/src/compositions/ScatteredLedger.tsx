@@ -7,17 +7,19 @@ import {
   useVideoConfig,
 } from "remotion";
 import { InkBackground } from "../components/InkBackground";
+import { PolishStack } from "../components/PolishStack";
 import {
   clamp,
   easeExpressive,
   easeStandard,
+  idleBreathe,
   lerp,
   staggerDelay,
   storyProgress,
   wrap01,
 } from "../motion";
 import { oceanHeight } from "../ocean";
-import { tokens } from "../tokens";
+import { tokens } from "../theme";
 
 type StreamOrigin = {
   /** Angle from center (radians) */
@@ -50,10 +52,11 @@ const TICKS = [0.2, 0.32, 0.44, 0.5, 0.56, 0.68, 0.8];
  */
 export const ScatteredLedger: React.FC = () => {
   const frame = useCurrentFrame();
-  const { width, height, durationInFrames } = useVideoConfig();
+  const { width, height, durationInFrames, fps } = useVideoConfig();
   const t = frame / durationInFrames;
   const { converge, anticipate, hold } = storyProgress(t);
   const travel = wrap01(t);
+  const breathe = idleBreathe(frame, fps);
 
   const cx = width * 0.5;
   const cy = height * 0.5;
@@ -163,17 +166,18 @@ export const ScatteredLedger: React.FC = () => {
   });
 
   return (
-    <AbsoluteFill>
-      <InkBackground
-        intensity={interpolate(converge, [0, 1], [0.9, 1.15], clamp)}
-      />
-      <AbsoluteFill>
-        <svg
-          width={width}
-          height={height}
-          viewBox={`0 0 ${width} ${height}`}
-          style={{ position: "absolute", inset: 0 }}
-        >
+    <PolishStack>
+      <AbsoluteFill style={{ scale: breathe }}>
+        <InkBackground
+          intensity={interpolate(converge, [0, 1], [0.9, 1.15], clamp)}
+        />
+        <AbsoluteFill>
+          <svg
+            width={width}
+            height={height}
+            viewBox={`0 0 ${width} ${height}`}
+            style={{ position: "absolute", inset: 0 }}
+          >
           <defs>
             <linearGradient id="sl2-ledger" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor={tokens.accent} stopOpacity="0" />
@@ -264,8 +268,9 @@ export const ScatteredLedger: React.FC = () => {
             fill={tokens.paper}
             opacity={hold * 0.95}
           />
-        </svg>
+          </svg>
+        </AbsoluteFill>
       </AbsoluteFill>
-    </AbsoluteFill>
+    </PolishStack>
   );
 };

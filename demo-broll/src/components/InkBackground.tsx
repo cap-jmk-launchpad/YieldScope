@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { clamp, easeEditorial, loopPulse, wrap01 } from "../motion";
-import { tokens } from "../tokens";
+import { tokens } from "../theme";
 
 /**
  * Instrument-panel dusk field: layered depth, slow ambient drift,
