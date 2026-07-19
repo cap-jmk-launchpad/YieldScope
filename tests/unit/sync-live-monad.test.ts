@@ -248,6 +248,49 @@ describe("syncMonadStake live path", () => {
     );
   });
 
+  it("historical window keeps claimed only when range does not reach now", async () => {
+    const { syncMonadStake } = await import("../../web/src/lib/sync");
+    const addr = "0x0000000000000000000000000000000000000001" as const;
+    const pending = {
+      id: "monad_stake:x:pending:1",
+      source: "monad_stake" as const,
+      asset: "MON",
+      amount: "0.11",
+      earnedAt: new Date().toISOString(),
+      rawType: "UNCLAIMED_STAKING_REWARDS",
+    };
+    const claimed = {
+      id: "monad_stake:x:claim:0xabc:0x0",
+      source: "monad_stake" as const,
+      asset: "MON",
+      amount: "1",
+      earnedAt: "2024-01-15T00:00:00.000Z",
+      rawType: "CLAIMED_STAKING_REWARDS",
+    };
+    scanMonadStake.mockResolvedValueOnce({
+      events: [claimed, pending],
+      claimedEvents: [claimed],
+      pendingEvents: [pending],
+      states: [],
+      claimHistorySource: "archive_rpc",
+      claimHistoryComplete: true,
+      claimHistoryOk: true,
+    });
+    const historical = await syncMonadStake(addr, {
+      userId: "u1",
+      window: {
+        mode: "custom",
+        fromMs: Date.parse("2024-01-01T00:00:00.000Z"),
+        toMs: Date.parse("2024-01-31T23:59:59.999Z"),
+      },
+    });
+    expect(historical.status).toBe("ok");
+    expect(historical.events).toEqual([claimed]);
+    expect(historical.events).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: pending.id })]),
+    );
+  });
+
   it("incremental plan passes endMs into scanMonadStake", async () => {
     const { syncMonadStake } = await import("../../web/src/lib/sync");
     const addr = "0x0000000000000000000000000000000000000001" as const;

@@ -10,35 +10,51 @@ vi.mock("../../web/src/lib/supabase/admin", () => ({
 
 const WALLET = "0x1111111111111111111111111111111111111111";
 
+/** Dual-shape mock: status uses .limit(1).maybeSingle(); loadMonad uses await .limit(20). */
+function walletLimitResult(
+  rows: Array<{
+    address: string;
+    chain_id: number;
+    last_seen_at?: string;
+  }> | null,
+  error: { message: string } | null = null,
+) {
+  const listPayload = { data: rows ?? [], error };
+  const singlePayload = {
+    data: rows?.[0] ?? null,
+    error,
+  };
+  return {
+    then: (resolve: (v: typeof listPayload) => unknown) => resolve(listPayload),
+    maybeSingle: async () => singlePayload,
+  };
+}
+
 function mockNoWallet() {
   return {
     select: () => ({
       eq: () => ({
         order: () => ({
-          limit: () => ({
-            maybeSingle: async () => ({ data: null, error: null }),
-          }),
+          limit: () => walletLimitResult(null),
         }),
       }),
     }),
   };
 }
 
-function mockWalletRow(address = WALLET) {
+function mockWalletRow(address = WALLET, chainId = 143) {
   return {
     select: () => ({
       eq: () => ({
         order: () => ({
-          limit: () => ({
-            maybeSingle: async () => ({
-              data: {
+          limit: () =>
+            walletLimitResult([
+              {
                 address,
-                chain_id: 10143,
+                chain_id: chainId,
                 last_seen_at: "2026-07-18T00:00:00.000Z",
               },
-              error: null,
-            }),
-          }),
+            ]),
         }),
       }),
     }),
@@ -593,6 +609,106 @@ describe("credentials-db persistence", () => {
     expect(await loadMonadWalletAddress("u1")).toBe(WALLET);
   });
 
+  it("loadMonadWalletAddress prefers Monad mainnet over other chains", async () => {
+    const ethOnly = "0x2222222222222222222222222222222222222222";
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () =>
+                  walletLimitResult([
+                    {
+                      address: ethOnly,
+                      chain_id: 1,
+                      last_seen_at: "2026-07-19T00:00:00.000Z",
+                    },
+                    {
+                      address: WALLET,
+                      chain_id: 143,
+                      last_seen_at: "2026-07-18T00:00:00.000Z",
+                    },
+                  ]),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const { loadMonadWalletAddress } = await import(
+      "../../web/src/lib/credentials-db"
+    );
+    expect(await loadMonadWalletAddress("u1")).toBe(WALLET);
+  });
+
+  it("loadMonadWalletAddress falls back when mainnet row is missing", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") return mockWalletRow(WALLET, 10143);
+      return {};
+    });
+    const { loadMonadWalletAddress } = await import(
+      "../../web/src/lib/credentials-db"
+    );
+    expect(await loadMonadWalletAddress("u1")).toBe(WALLET);
+  });
+
+  it("loadMonadWalletAddress returns null when row address is empty", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () =>
+                  walletLimitResult([
+                    {
+                      address: "",
+                      chain_id: 143,
+                      last_seen_at: "2026-07-18T00:00:00.000Z",
+                    },
+                  ]),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+    const { loadMonadWalletAddress } = await import(
+      "../../web/src/lib/credentials-db"
+    );
+    expect(await loadMonadWalletAddress("u1")).toBeNull();
+  });
+
   it("loadDecrypted throws on corrupt ciphertext", async () => {
     from.mockImplementation((table: string) => {
       if (table === "profiles") {
@@ -929,12 +1045,7 @@ describe("credentials-db persistence", () => {
           select: () => ({
             eq: () => ({
               order: () => ({
-                limit: () => ({
-                  maybeSingle: async () => ({
-                    data: null,
-                    error: { message: "w" },
-                  }),
-                }),
+                limit: () => walletLimitResult(null, { message: "w" }),
               }),
             }),
           }),
