@@ -1,0 +1,22 @@
+{
+  "name": "demo-broll",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "remotion studio src/index.ts --port=3456",
+    "render": "node ./scripts/render-all.mjs",
+    "render:scattered": "remotion render src/index.ts ScatteredLedger ../docs/demo/broll/scattered-ledger.mp4 --codec=h264 --port=3460 --concurrency=1",
+    "render:weave": "remotion render src/index.ts SourceWeave ../docs/demo/broll/source-weave.mp4 --codec=h264 --port=3461 --concurrency=1"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.409",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "4.0.409"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.3"
+  }
+}

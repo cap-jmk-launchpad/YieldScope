@@ -10,7 +10,9 @@
     "test:smoke": "tsx scripts/smoke.ts",
     "test:contracts": "forge test --root contracts",
     "test:e2e:auth": "playwright test --config=playwright.config.ts",
-    "test:e2e:auth:install": "playwright install chromium"
+    "test:e2e:auth:install": "playwright install chromium",
+    "demo:broll": "pnpm --dir demo-broll render",
+    "demo:broll:studio": "pnpm --dir demo-broll dev"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",
