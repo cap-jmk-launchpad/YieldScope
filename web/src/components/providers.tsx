@@ -9,6 +9,7 @@ import {
 import "@rainbow-me/rainbowkit/styles.css";
 import { type ReactNode, useState } from "react";
 import { WagmiProvider, http } from "wagmi";
+import { PersistMonadWallet } from "@/components/persist-monad-wallet";
 import { defaultMonadRpcUrl, monadMainnet } from "@/lib/contracts";
 import {
   isDemoWalletConnectProjectId,
@@ -68,6 +69,7 @@ export function Providers({ children }: { children: ReactNode }) {
           modalSize="compact"
           initialChain={monadMainnet}
         >
+          <PersistMonadWallet />
           {children}
         </RainbowKitProvider>
       </QueryClientProvider>

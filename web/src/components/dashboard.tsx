@@ -1051,9 +1051,14 @@ export function Dashboard({
                 const id = brand.id;
                 const s = ledger?.sources[id];
                 const syncing = syncingSources.includes(id);
+                const isMonad = id === "monad_stake";
+                const monadLiveConnected = Boolean(
+                  address || ledger?.wallet?.address,
+                );
                 const uiStatus: UiSourceStatus = resolveUiSourceStatus(
                   s?.status,
                   syncing,
+                  isMonad ? { liveConnected: monadLiveConnected } : undefined,
                 );
                 const displayError = syncing
                   ? undefined
@@ -1078,7 +1083,6 @@ export function Dashboard({
                     : agg
                       ? `Σ ${agg.totalAmount} (native)`
                       : "";
-                const isMonad = id === "monad_stake";
                 return (
                   <li
                     key={id}

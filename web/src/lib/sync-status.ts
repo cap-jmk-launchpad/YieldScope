@@ -32,11 +32,19 @@ export function sourcesForSyncTarget(
   return target === "all" ? [...SYNC_SOURCES] : [target];
 }
 
+/**
+ * Map ledger sync status → UI chip. When a live wallet (or saved connection)
+ * is present but sync has never marked the source `ok`, treat as connected /
+ * sync-ready instead of `not_connected`. Real `error` / `ok` still win.
+ */
 export function resolveUiSourceStatus(
   persisted: SourceStatus | undefined,
   syncing: boolean,
+  opts?: { liveConnected?: boolean },
 ): UiSourceStatus {
   if (syncing) return "syncing";
+  if (persisted === "ok" || persisted === "error") return persisted;
+  if (opts?.liveConnected) return "ok";
   return persisted ?? "not_connected";
 }
 

@@ -34,6 +34,12 @@ function connectionStatusLabel(configured: boolean): string {
   return configured ? "connected" : "not_connected";
 }
 
+function maskAddressHint(address: string): string {
+  const trimmed = address.trim();
+  if (trimmed.length <= 10) return "••••";
+  return `${trimmed.slice(0, 6)}…${trimmed.slice(-4)}`;
+}
+
 export function ConnectPanel() {
   const [binanceKey, setBinanceKey] = useState("");
   const [binanceSecret, setBinanceSecret] = useState("");
@@ -48,9 +54,24 @@ export function ConnectPanel() {
   const [error, setError] = useState<string | null>(null);
   const { address, isConnected, chainId } = useAccount();
 
+  // Live Phantom session OR saved DB row — never show not_connected while
+  // wagmi already knows the address.
+  const displayStatus: CredentialsStatusMap = {
+    ...status,
+    monad_stake:
+      status.monad_stake.configured || (isConnected && Boolean(address))
+        ? {
+            configured: true,
+            keyHint:
+              status.monad_stake.keyHint ??
+              (address ? maskAddressHint(address) : undefined),
+          }
+        : status.monad_stake,
+  };
+
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
+    async function loadStatus() {
       try {
         const res = await fetch("/api/credentials");
         const json = (await res.json()) as {
@@ -73,9 +94,15 @@ export function ConnectPanel() {
       } catch {
         if (!cancelled) setError("Could not load saved credentials");
       }
-    })();
+    }
+    void loadStatus();
+    const onPersisted = () => {
+      void loadStatus();
+    };
+    window.addEventListener("yieldscope:wallet-persisted", onPersisted);
     return () => {
       cancelled = true;
+      window.removeEventListener("yieldscope:wallet-persisted", onPersisted);
     };
   }, []);
 
@@ -145,7 +172,7 @@ export function ConnectPanel() {
   }
 
   function hintFor(brand: ConnectionBrand): string | undefined {
-    const s = status[brand.id];
+    const s = displayStatus[brand.id];
     if (!s?.configured) return undefined;
     return s.keyHint ?? "•••• saved";
   }
@@ -163,18 +190,19 @@ export function ConnectPanel() {
       <p className="lede">
         Paste <strong>read-only</strong> API keys for exchanges, connect a Monad
         wallet, and paste a Terra Classic (LUNC) address. Keys and addresses are
-        stored for your account — secrets stay masked after save.
+        stored for your account — secrets stay masked after save. Connecting
+        Phantom auto-saves the Monad address.
       </p>
 
       <div className="connection-overview" aria-label="Connection status">
         <ConnectionSectionList
           section="exchanges"
-          status={status}
+          status={displayStatus}
           hintFor={hintFor}
         />
         <ConnectionSectionList
           section="wallets"
-          status={status}
+          status={displayStatus}
           hintFor={hintFor}
         />
       </div>
@@ -307,7 +335,7 @@ export function ConnectPanel() {
           <div className="connect-source">
             <ConnectionRowHeader
               brand={monadBrand}
-              configured={status.monad_stake.configured}
+              configured={displayStatus.monad_stake.configured}
               hint={hintFor(monadBrand)}
             />
             <p className="hint">
@@ -315,11 +343,13 @@ export function ConnectPanel() {
               {DEFAULT_MONAD_CHAIN_ID}) in <strong>this browser</strong>. Install
               the Phantom extension here (not only in Brave) so we stay in-tab —
               no <code>phantom://</code> handoff. On phone: open this site in
-              Phantom&apos;s in-app browser. Then hit Save connection. Use Monad
-              (not Monad Testnet) if prompted.               Sync reads{" "}
-              <strong>claimed ClaimRewards</strong> (explorer/archive when
+              Phantom&apos;s in-app browser. The address is saved automatically
+              when you connect. Use Monad (not Monad Testnet) if prompted. Sync
+              reads <strong>claimed ClaimRewards</strong> (explorer/archive when
               available) plus{" "}
-              <strong>unclaimed rewards from validators you’re delegated to</strong>{" "}
+              <strong>
+                unclaimed rewards from validators you’re delegated to
+              </strong>{" "}
               — not wallet transfers, not validators you never staked with.
             </p>
             <div className="wallet-connect">
@@ -328,7 +358,7 @@ export function ConnectPanel() {
             {isConnected && address ? (
               <p className="wallet">
                 Connected {address}
-                {status.monad_stake.configured ? " — ready to save" : ""}
+                {status.monad_stake.configured ? " — saved for sync" : " — saving…"}
               </p>
             ) : status.monad_stake.configured ? (
               <p className="ok">

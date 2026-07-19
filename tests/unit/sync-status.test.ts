@@ -28,6 +28,22 @@ describe("sync-status helpers", () => {
     expect(resolveUiSourceStatus(undefined, false)).toBe("not_connected");
   });
 
+  it("treats a live wallet as connected when sync never ran", () => {
+    expect(
+      resolveUiSourceStatus("not_connected", false, { liveConnected: true }),
+    ).toBe("ok");
+    expect(
+      resolveUiSourceStatus(undefined, false, { liveConnected: true }),
+    ).toBe("ok");
+    // Real sync outcomes still win over live-wallet hydration.
+    expect(
+      resolveUiSourceStatus("error", false, { liveConnected: true }),
+    ).toBe("error");
+    expect(resolveUiSourceStatus("ok", false, { liveConnected: true })).toBe(
+      "ok",
+    );
+  });
+
   it("only shows errors for failing sources", () => {
     expect(sourceErrorForDisplay("ok", "old failure")).toBeUndefined();
     expect(sourceErrorForDisplay("not_connected", "Not connected")).toBeUndefined();
