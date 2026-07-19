@@ -6,92 +6,17 @@ import {
   useVideoConfig,
 } from "remotion";
 import { InkBackground } from "../components/InkBackground";
-import {
-  clamp,
-  easeEditorial,
-  easeExpressive,
-  easeStandard,
-  lerp,
-  storyProgress,
-  wrap01,
-} from "../motion";
+import { clamp, easeExpressive, lerp, storyProgress, wrap01 } from "../motion";
+import { oceanDrift, oceanHeight } from "../ocean";
 import { tokens } from "../tokens";
 
-type LaneDef = {
-  yNorm: number;
-  amp: number;
-  freq: number;
-  phase: number;
-  weight: number;
-  /** Hierarchy rank — lower weaves first */
-  rank: number;
-};
-
-/** Four unnamed source lanes — geometric only. */
-const LANES: LaneDef[] = [
-  { yNorm: 0.28, amp: 56, freq: 2.2, phase: 0.0, weight: 1.7, rank: 1 },
-  { yNorm: 0.4, amp: 44, freq: 2.8, phase: 1.1, weight: 2.3, rank: 0 },
-  { yNorm: 0.6, amp: 48, freq: 2.5, phase: 2.2, weight: 1.9, rank: 0 },
-  { yNorm: 0.72, amp: 40, freq: 3.1, phase: 3.0, weight: 1.6, rank: 2 },
-];
-
-function buildLanePath(
-  width: number,
-  height: number,
-  lane: LaneDef,
-  weave: number,
-  travel: number,
-  anti: number,
-): string {
-  const baseY = lane.yNorm * height;
-  const targetY = height * 0.5;
-  // Anticipation: lanes drift apart slightly before lock
-  const spreadY = baseY + (baseY - targetY) * anti * 0.4;
-  const steps = 96;
-  const parts: string[] = [];
-
-  for (let i = 0; i <= steps; i++) {
-    const u = i / steps;
-    const x = u * width;
-    // Frequency phase-locks toward center as weave rises (coherence)
-    const freq = lerp(lane.freq, 1.15, weave);
-    const amp = lane.amp * (1 - weave * 0.92) * (1 + anti * 0.25);
-    const wave =
-      Math.sin(u * Math.PI * freq + lane.phase + travel * Math.PI * 2) * amp;
-    // Editorial ease into braid
-    const lock = easeEditorial(weave);
-    const y = lerp(spreadY + wave, targetY, lock);
-    parts.push(i === 0 ? `M ${x.toFixed(2)} ${y.toFixed(2)}` : `L ${x.toFixed(2)} ${y.toFixed(2)}`);
-  }
-  return parts.join(" ");
-}
-
-function beadOnLane(
-  width: number,
-  height: number,
-  lane: LaneDef,
-  weave: number,
-  travel: number,
-  anti: number,
-  u: number,
-): [number, number] {
-  const baseY = lane.yNorm * height;
-  const targetY = height * 0.5;
-  const spreadY = baseY + (baseY - targetY) * anti * 0.4;
-  const x = u * width;
-  const freq = lerp(lane.freq, 1.15, weave);
-  const amp = lane.amp * (1 - weave * 0.92) * (1 + anti * 0.25);
-  const wave =
-    Math.sin(u * Math.PI * freq + lane.phase + travel * Math.PI * 2) * amp;
-  const lock = easeEditorial(weave);
-  const y = lerp(spreadY + wave, targetY, lock);
-  return [x, y];
-}
+const COLS = 96;
+const PARTICLE_ROWS = 3;
 
 /**
- * V2 — Source lanes weave into one earn pulse.
- * Craft: anticipation spread → phase-lock braid → hold pulse → release.
- * Traveling beads + ring follow-through as secondary action.
+ * V2 — Ocean source field as vertical blocks + crest particles.
+ * Design: instrument-panel “digital sea” — discrete bars sample a multi-layer
+ * swell/sea/chop surface; particles ride crests. Story still weaves to one pulse.
  */
 export const SourceWeave: React.FC = () => {
   const frame = useCurrentFrame();
@@ -99,66 +24,147 @@ export const SourceWeave: React.FC = () => {
   const t = frame / durationInFrames;
   const { converge, anticipate, hold } = storyProgress(t);
   const travel = wrap01(t);
-  const flow = wrap01(t * 1.2);
 
-  const sorted = useMemo(
-    () => [...LANES].sort((a, b) => a.rank - b.rank),
-    [],
-  );
+  const baseline = height * 0.52;
+  const marginX = width * 0.06;
+  const usableW = width - marginX * 2;
+  const gap = 3;
+  const colW = (usableW - gap * (COLS - 1)) / COLS;
+  const maxAmp = height * 0.22;
 
-  const lanes = useMemo(() => {
-    return sorted.map((lane, i) => {
-      const delay = (i / Math.max(1, sorted.length - 1)) * 0.12;
-      const local = Math.max(0, Math.min(1, converge - delay * 0.5));
-      const weave = easeExpressive(local);
-      const d = buildLanePath(width, height, lane, weave, travel, anticipate);
+  // Weave: ocean amp collapses toward a calm center line → pulse
+  const oceanScale = interpolate(converge, [0, 1], [1, 0.08], {
+    ...clamp,
+    easing: easeExpressive,
+  });
+  const spread = 1 + anticipate * 0.35;
+  const calmPull = easeExpressive(converge);
+
+  const columns = useMemo(() => {
+    const out: Array<{
+      x: number;
+      top: number;
+      h: number;
+      opacity: number;
+      lean: number;
+      crest: number;
+    }> = [];
+
+    for (let i = 0; i < COLS; i++) {
+      const u = (i + 0.5) / COLS;
+      const sample = oceanHeight(u, travel, {
+        swellAmp: 1.05 * spread,
+        seaAmp: 1 * spread,
+        chopAmp: 0.9 + anticipate * 0.4,
+        scale: maxAmp * oceanScale,
+      });
+
+      // Lateral gather toward center as weave locks (sources → one)
+      const xNatural = marginX + i * (colW + gap);
+      const xCenter = width * 0.5 - colW / 2;
+      const x = lerp(xNatural, xCenter, calmPull * 0.55);
+
+      const barH = Math.max(4, Math.abs(sample.height) * 0.55 + maxAmp * 0.12 * (1 - calmPull));
+      // Ocean surface: bars grow upward from a trough baseline
+      const surfaceY = baseline - sample.height * (1 - calmPull * 0.85);
+      const top = surfaceY - barH * 0.15;
+      const h = barH + sample.height * 0.2 * (1 - calmPull);
+
+      const depthFade = 0.35 + sample.crest * 0.55;
       const opacity = interpolate(
-        weave,
-        [0, 0.25, 0.7, 1],
-        [0.32 + i * 0.04, 0.72, 0.5, 0.28 + i * 0.04],
+        converge,
+        [0, 0.4, 0.75, 1],
+        [depthFade, depthFade * 1.05, 0.45, 0.2],
         clamp,
       );
-      const beadU = wrap01(flow + i * 0.19 + delay);
-      const bead = beadOnLane(
-        width,
-        height,
-        lane,
-        weave,
-        travel,
-        anticipate,
-        beadU,
-      );
-      const dashOffset = -flow * 160 - i * 22;
-      return { d, opacity, weight: lane.weight, bead, dashOffset, weave };
-    });
-  }, [sorted, converge, anticipate, width, height, travel, flow]);
 
-  const pulseR = interpolate(converge, [0, 0.5, 1], [3, 16, 5], {
+      out.push({
+        x,
+        top: top - h * 0.5,
+        h: Math.max(6, h),
+        opacity,
+        lean: sample.slope * (1 - calmPull) * 8,
+        crest: sample.crest,
+      });
+    }
+    return out;
+  }, [
+    travel,
+    maxAmp,
+    oceanScale,
+    spread,
+    anticipate,
+    calmPull,
+    converge,
+    marginX,
+    colW,
+    gap,
+    baseline,
+    width,
+  ]);
+
+  const particles = useMemo(() => {
+    const pts: Array<{ x: number; y: number; r: number; o: number }> = [];
+    const count = 56;
+    for (let i = 0; i < count; i++) {
+      const row = i % PARTICLE_ROWS;
+      const u0 = (i / count + travel * 0.08 * (row + 1)) % 1;
+      const drift = oceanDrift(u0, travel);
+      const u = (u0 + drift + 1) % 1;
+      const sample = oceanHeight(u, travel, {
+        swellAmp: 1.05 * spread,
+        seaAmp: 1 * spread,
+        chopAmp: 1,
+        scale: maxAmp * oceanScale,
+      });
+      const xNatural = marginX + u * usableW;
+      const x = lerp(xNatural, width * 0.5, calmPull * 0.55);
+      const y =
+        baseline -
+        sample.height * (1 - calmPull * 0.85) -
+        row * 7 -
+        sample.crest * 6;
+      const o =
+        (0.2 + sample.crest * 0.65) *
+        interpolate(converge, [0, 0.5, 1], [1, 0.9, 0.25], clamp);
+      pts.push({
+        x,
+        y,
+        r: 1.2 + sample.crest * 2.2 - row * 0.25,
+        o,
+      });
+    }
+    return pts;
+  }, [
+    travel,
+    spread,
+    maxAmp,
+    oceanScale,
+    calmPull,
+    converge,
+    marginX,
+    usableW,
+    baseline,
+    width,
+  ]);
+
+  const pulseR = interpolate(converge, [0, 0.55, 1], [2, 22, 6], {
     ...clamp,
     easing: easeExpressive,
   });
   const pulseOpacity = interpolate(
     converge,
-    [0, 0.35, 0.55, 0.8, 1],
-    [0.12, 0.7, 0.95, 0.4, 0.12],
+    [0, 0.35, 0.55, 0.85, 1],
+    [0.08, 0.55, 0.95, 0.35, 0.1],
     clamp,
   );
-  const ringR = interpolate(hold, [0, 1], [8, 42], {
-    ...clamp,
-    easing: easeStandard,
-  });
-  const ringOpacity = interpolate(hold, [0, 0.4, 1], [0, 0.45, 0], clamp);
-  const coreLineOpacity = interpolate(
-    converge,
-    [0, 0.35, 0.7, 1],
-    [0.06, 0.4, 0.65, 0.08],
-    clamp,
-  );
-  const bgIntensity = interpolate(converge, [0, 1], [0.9, 1.2], clamp);
+  const ringR = interpolate(hold, [0, 1], [10, 48], clamp);
+  const ringOpacity = interpolate(hold, [0, 0.35, 1], [0, 0.4, 0], clamp);
+  const foamLineOpacity = interpolate(converge, [0, 0.3, 0.7, 1], [0.15, 0.35, 0.2, 0.05], clamp);
 
   return (
     <AbsoluteFill>
-      <InkBackground intensity={bgIntensity} />
+      <InkBackground intensity={interpolate(converge, [0, 1], [0.95, 1.2], clamp)} />
       <AbsoluteFill>
         <svg
           width={width}
@@ -167,96 +173,83 @@ export const SourceWeave: React.FC = () => {
           style={{ position: "absolute", inset: 0 }}
         >
           <defs>
-            <linearGradient id="sw-lane" x1="0%" y1="0%" x2="100%" y2="0%">
+            <linearGradient id="ow-bar" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={tokens.paper} stopOpacity="0.85" />
+              <stop offset="35%" stopColor={tokens.accent} stopOpacity="0.9" />
+              <stop offset="100%" stopColor={tokens.accentDim} stopOpacity="0.25" />
+            </linearGradient>
+            <linearGradient id="ow-foam" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor={tokens.accent} stopOpacity="0" />
-              <stop offset="12%" stopColor={tokens.accent} stopOpacity="0.45" />
-              <stop offset="50%" stopColor={tokens.accent} stopOpacity="0.95" />
-              <stop offset="88%" stopColor={tokens.accent} stopOpacity="0.45" />
+              <stop offset="50%" stopColor={tokens.accent} stopOpacity="0.5" />
               <stop offset="100%" stopColor={tokens.accent} stopOpacity="0" />
             </linearGradient>
-            <radialGradient id="sw-pulse" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor={tokens.accent} stopOpacity="0.9" />
-              <stop offset="45%" stopColor={tokens.accent} stopOpacity="0.28" />
+            <radialGradient id="ow-pulse" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor={tokens.accent} stopOpacity="0.95" />
+              <stop offset="50%" stopColor={tokens.accent} stopOpacity="0.25" />
               <stop offset="100%" stopColor={tokens.accent} stopOpacity="0" />
             </radialGradient>
-            <filter id="sw-soft" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="1.4" />
-            </filter>
           </defs>
 
-          {/* Unified core under braid */}
+          {/* Quiet horizon foam line */}
           <line
-            x1={width * 0.1}
-            y1={height * 0.5}
-            x2={width * 0.9}
-            y2={height * 0.5}
-            stroke="url(#sw-lane)"
-            strokeWidth={1.4}
-            opacity={coreLineOpacity}
+            x1={marginX}
+            y1={baseline}
+            x2={width - marginX}
+            y2={baseline}
+            stroke="url(#ow-foam)"
+            strokeWidth={1}
+            opacity={foamLineOpacity}
           />
 
-          {lanes.map((lane, i) => (
-            <g key={i}>
-              <path
-                d={lane.d}
-                fill="none"
-                stroke="url(#sw-lane)"
-                strokeWidth={lane.weight}
-                strokeLinecap="round"
-                opacity={lane.opacity * 0.4}
-                strokeDasharray="3 16"
-                strokeDashoffset={lane.dashOffset}
-              />
-              <path
-                d={lane.d}
-                fill="none"
-                stroke="url(#sw-lane)"
-                strokeWidth={lane.weight}
-                strokeLinecap="round"
-                opacity={lane.opacity}
-              />
-              <circle
-                cx={lane.bead[0]}
-                cy={lane.bead[1]}
-                r={2 + lane.weave * 1.8}
-                fill={tokens.accent}
-                opacity={0.4 + lane.weave * 0.4}
-              />
-            </g>
+          {/* Block wave field */}
+          {columns.map((c, i) => (
+            <rect
+              key={i}
+              x={c.x}
+              y={c.top}
+              width={Math.max(2, colW)}
+              height={c.h}
+              rx={Math.min(3, colW / 2)}
+              fill="url(#ow-bar)"
+              opacity={c.opacity}
+              transform={`rotate(${c.lean} ${c.x + colW / 2} ${c.top + c.h / 2})`}
+            />
           ))}
 
-          {/* Follow-through ring on hold */}
+          {/* Crest particles */}
+          {particles.map((p, i) => (
+            <circle
+              key={`p-${i}`}
+              cx={p.x}
+              cy={p.y}
+              r={p.r}
+              fill={tokens.accent}
+              opacity={p.o}
+            />
+          ))}
+
           <circle
             cx={width * 0.5}
-            cy={height * 0.5}
+            cy={baseline}
             r={ringR}
             fill="none"
             stroke={tokens.accent}
-            strokeWidth={1.25}
+            strokeWidth={1.2}
             opacity={ringOpacity}
           />
-
           <circle
             cx={width * 0.5}
-            cy={height * 0.5}
-            r={pulseR * 1.6}
-            fill="url(#sw-pulse)"
-            opacity={pulseOpacity * 0.55}
-            filter="url(#sw-soft)"
-          />
-          <circle
-            cx={width * 0.5}
-            cy={height * 0.5}
+            cy={baseline}
             r={pulseR}
-            fill="url(#sw-pulse)"
+            fill="url(#ow-pulse)"
             opacity={pulseOpacity}
           />
           <circle
             cx={width * 0.5}
-            cy={height * 0.5}
-            r={interpolate(converge, [0, 1], [1.5, 4.5], clamp)}
+            cy={baseline}
+            r={interpolate(converge, [0, 1], [1.5, 4], clamp)}
             fill={tokens.paper}
-            opacity={pulseOpacity * 0.85}
+            opacity={pulseOpacity * 0.9}
           />
         </svg>
       </AbsoluteFill>
