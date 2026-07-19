@@ -439,6 +439,12 @@ export default function DocsConnectPage() {
             <strong>Not in Phase 1:</strong> ETH / Lido / Base / multi-chain DeFi
             aggregators, full portfolio balances, tax engines, APY farm browsers.
           </p>
+          <p>
+            Want another chain?{" "}
+            <Link href="/app/connect#request-chain">Request a chain</Link> on
+            Connect (sign-in required). We log requests for the backlog — no ship
+            date implied.
+          </p>
           <p className="docs-next">
             Ready?{" "}
             <Link href="/register">Create an account</Link>

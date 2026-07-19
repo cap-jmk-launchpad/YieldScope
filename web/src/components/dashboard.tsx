@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { CurrencyCell, CurrencyLogo } from "@/components/asset-icon";
@@ -1132,6 +1133,10 @@ export function Dashboard({
           </div>
         ))}
       </div>
+      <p className="request-chain-dash-cta">
+        Need another network?{" "}
+        <Link href="/app/connect#request-chain">Request a chain</Link>
+      </p>
 
       {chartsLoading && chartRows.length === 0 ? (
         <p className="msg" role="status">

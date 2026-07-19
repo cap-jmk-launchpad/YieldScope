@@ -79,7 +79,8 @@ function isApiProtected(pathname: string): boolean {
     pathname.startsWith("/api/sync") ||
     pathname.startsWith("/api/checkpoint") ||
     pathname.startsWith("/api/ledger") ||
-    pathname.startsWith("/api/credentials")
+    pathname.startsWith("/api/credentials") ||
+    pathname.startsWith("/api/chain-requests")
   );
 }
 

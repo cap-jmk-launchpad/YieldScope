@@ -72,6 +72,11 @@ Index inventory (hot paths):
 | `wallet_connections_profile_idx` | latest wallet |
 | `source_credentials` UNIQUE `(profile_id, source)` | credential load/save |
 | `profiles_user_id_idx` | `ensureProfileId` |
+| `chain_requests_user_created_idx` | per-user “already requested” list |
+
+### Chain requests
+
+`chain_requests` stores authenticated “Request a chain” submissions (name, optional why/earn type, optional contact email). RLS is fail-closed — only the app service role writes/reads via `/api/chain-requests`.
 
 ### Earn aggregate refresh
 
