@@ -101,7 +101,18 @@ export function AttestPanel() {
       )}
       {!isConnected ? (
         <div className="wallet-connect">
-          <ConnectButton label="Connect wallet" showBalance={false} />
+          <ConnectButton
+            label="Connect wallet"
+            showBalance={false}
+            chainStatus={{
+              smallScreen: "none",
+              largeScreen: "icon",
+            }}
+            accountStatus={{
+              smallScreen: "avatar",
+              largeScreen: "address",
+            }}
+          />
         </div>
       ) : null}
       <div className="actions">

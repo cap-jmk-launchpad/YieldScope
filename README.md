@@ -45,7 +45,7 @@ pnpm --dir web dev
 Open http://localhost:3000 → Register/Sign in → Connect → Dashboard → Attest.
 
 Required for app access: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `web/.env.local`.
-Optional: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for WalletConnect in the RainbowKit modal.
+Optional: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for WalletConnect in the RainbowKit modal (phone QR / deep link). Get a free id at https://cloud.walletconnect.com — bake it at **image build** time (`NEXT_PUBLIC_*` is not a runtime k8s secret). If unset, deploy falls back to RainbowKit’s shared demo id.
 
 Supabase redirect URLs (Auth → URL Configuration):
 - `http://localhost:3000/auth/callback` (dev)
@@ -57,7 +57,7 @@ Supabase redirect URLs (Auth → URL Configuration):
 
 - **Account:** Supabase email/password at `/login`, `/register`, and `/forgot-password` → `/auth/reset-password`. Registration requires email confirmation (Supabase Dashboard → Auth → confirm email) — that link is the only bot gate (no captcha). Password reset emails verify on the API host then redirect to `/auth/reset-password` (`?code=` or `#access_token=`).
 - **CEX:** Connect UI is **read-only API keys** for Binance and OKX (sessionStorage). Server sync also accepts env vars for smoke (`BINANCE_*`, `OKX_*`).
-- **Wallet:** RainbowKit + wagmi on Monad testnet (chain `10143`) for stake reads and attestation.
+- **Wallet:** RainbowKit + wagmi on Monad testnet (chain `10143`) for stake reads and attestation. Suggested connectors: Phantom (EVM), MetaMask, Rainbow, OKX, injected, and WalletConnect (mobile). LUNC remains Terra address paste — not Solana Phantom.
 - **Fail closed:** `/app/*` requires a session; `/api/sync` and `/api/checkpoint/*` return 401 when unauthenticated. Broken adapters never invent earn rows.
 
 ## Live smoke (before demo recording)

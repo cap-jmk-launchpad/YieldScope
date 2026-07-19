@@ -257,13 +257,21 @@ export function ConnectPanel() {
           <SavedBadge status={status.monad_stake} label="Wallet" />
         </div>
         <p className="hint">
-          Connect MetaMask (or another wallet) on Monad testnet, then hit Save
-          connection so we remember it for sync.
+          Connect Phantom, MetaMask, or WalletConnect on Monad testnet (chain
+          10143), then hit Save connection so we remember it for sync. On phone:
+          open this site in Phantom&apos;s browser, or scan the WalletConnect QR
+          from desktop. Enable Monad Testnet in Phantom settings if prompted.
         </p>
         <div className="wallet-connect">
           <ConnectButton
-            chainStatus="icon"
-            accountStatus="address"
+            chainStatus={{
+              smallScreen: "none",
+              largeScreen: "icon",
+            }}
+            accountStatus={{
+              smallScreen: "avatar",
+              largeScreen: "address",
+            }}
             showBalance={false}
             label="Connect wallet"
           />

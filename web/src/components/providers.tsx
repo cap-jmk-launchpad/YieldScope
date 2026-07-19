@@ -1,22 +1,50 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { getDefaultConfig, RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
+import {
+  getDefaultConfig,
+  RainbowKitProvider,
+  darkTheme,
+} from "@rainbow-me/rainbowkit";
+import {
+  injectedWallet,
+  metaMaskWallet,
+  okxWallet,
+  phantomWallet,
+  rainbowWallet,
+  walletConnectWallet,
+} from "@rainbow-me/rainbowkit/wallets";
 import "@rainbow-me/rainbowkit/styles.css";
 import { type ReactNode, useState } from "react";
 import { WagmiProvider, http } from "wagmi";
 import { monadTestnet } from "@/lib/contracts";
+import {
+  isDemoWalletConnectProjectId,
+  resolveWalletConnectProjectId,
+} from "@/lib/wallet-config";
 
-// RainbowKit rejects empty projectId; `??` does not treat "" from .env.local as missing.
-// In development only, fall back to RainbowKit's public demo id (see rainbowkit getWalletConnectConnector).
-const RAINBOWKIT_DEMO_PROJECT_ID = "21fef48091f12692cad574a6f7753643";
-const envProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
-const projectId =
-  envProjectId ||
-  (process.env.NODE_ENV === "development" ? RAINBOWKIT_DEMO_PROJECT_ID : "");
+const { projectId, source: projectIdSource } = resolveWalletConnectProjectId({
+  envProjectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID,
+  nodeEnv: process.env.NODE_ENV,
+});
+
+if (
+  typeof window !== "undefined" &&
+  isDemoWalletConnectProjectId(projectId) &&
+  projectIdSource !== "dev-demo"
+) {
+  console.info(
+    "[YieldScope] WalletConnect is using the shared RainbowKit demo project id. " +
+      "For production reliability, set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID " +
+      "(https://cloud.walletconnect.com) at image build time.",
+  );
+}
 
 const config = getDefaultConfig({
   appName: "YieldScope",
+  appDescription:
+    "Monitor Binance, OKX, Monad stake, and LUNC rewards in one place.",
+  appUrl: "https://yieldscope.d3bu7.com",
   projectId,
   chains: [monadTestnet],
   transports: {
@@ -24,6 +52,21 @@ const config = getDefaultConfig({
       process.env.NEXT_PUBLIC_MONAD_RPC_URL ?? "https://testnet-rpc.monad.xyz",
     ),
   },
+  // Phantom (EVM) + WalletConnect for phone; MetaMask/OKX/Rainbow/injected for desktop.
+  // LUNC stays address-paste — do not route Solana Phantom for Terra Classic.
+  wallets: [
+    {
+      groupName: "Suggested",
+      wallets: [
+        phantomWallet,
+        metaMaskWallet,
+        rainbowWallet,
+        okxWallet,
+        injectedWallet,
+        walletConnectWallet,
+      ],
+    },
+  ],
   ssr: true,
 });
 
@@ -40,7 +83,11 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider theme={rkTheme} modalSize="compact">
+        <RainbowKitProvider
+          theme={rkTheme}
+          modalSize="compact"
+          initialChain={monadTestnet}
+        >
           {children}
         </RainbowKitProvider>
       </QueryClientProvider>

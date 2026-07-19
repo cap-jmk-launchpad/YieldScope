@@ -41,8 +41,14 @@ export function SiteNav() {
         <Link href="/app/attest">Attest</Link>
         <div className="site-nav-wallet">
           <ConnectButton
-            chainStatus="icon"
-            accountStatus="address"
+            chainStatus={{
+              smallScreen: "none",
+              largeScreen: "icon",
+            }}
+            accountStatus={{
+              smallScreen: "avatar",
+              largeScreen: "address",
+            }}
             showBalance={false}
             label="Connect wallet"
           />

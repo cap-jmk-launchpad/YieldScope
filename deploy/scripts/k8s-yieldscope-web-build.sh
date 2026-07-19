@@ -24,7 +24,16 @@ if [[ -z "$SA" ]]; then
 fi
 MR="${NEXT_PUBLIC_MONAD_RPC_URL:-https://testnet-rpc.monad.xyz}"
 CP="${NEXT_PUBLIC_CHECKPOINT_ADDRESS:-}"
-WC="${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-21fef48091f12692cad574a6f7753643}"
+# WalletConnect project id is baked into the Next.js bundle (NEXT_PUBLIC_*).
+# Prefer a dedicated id from https://cloud.walletconnect.com — export before deploy:
+#   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=<id> ./deploy/scripts/k8s-yieldscope-web-build.sh
+# Fallback is RainbowKit's shared demo id (QR still works; may be rate-limited).
+DEMO_WC="21fef48091f12692cad574a6f7753643"
+WC="${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-$DEMO_WC}"
+if [[ "$WC" == "$DEMO_WC" ]]; then
+  echo "WARN: NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID unset — baking RainbowKit demo id." >&2
+  echo "      Set a dedicated id from https://cloud.walletconnect.com for reliable mobile WC." >&2
+fi
 
 echo "==> syncing sources to $BUILD_HOST"
 TAR_EXCLUDES=(
