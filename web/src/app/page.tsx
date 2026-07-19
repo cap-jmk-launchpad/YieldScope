@@ -37,7 +37,7 @@ const SOURCES = [
   },
   {
     name: "Monad",
-    detail: "Staking unclaimed and accrued rewards",
+    detail: "Unclaimed rewards from validators you’re delegated to",
   },
   {
     name: "LUNC",

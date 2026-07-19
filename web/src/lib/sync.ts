@@ -375,8 +375,8 @@ export function monadRpcFromClient(client: {
 }
 
 /**
- * Monad staking is a point-in-time pending-rewards snapshot — date range is ignored.
- * Always refreshes current unclaimed/accrued rewards for the connected wallet.
+ * Monad staking: point-in-time pending unclaimed from getDelegations → getDelegator.
+ * Date range ignored. Only validators the wallet is delegated to; never invents rows.
  */
 export async function syncMonadStake(
   address: Address | null,

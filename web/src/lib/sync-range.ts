@@ -7,7 +7,7 @@
  * |---------------|---------------|---------|---------|
  * | Binance / OKX | Fetch bounded to the selected window (or import-missing / incremental) | Custom → merge-replace inside window (keep outside). First run / forceFull → replace. Import-missing later → upsert from high-water. | Full persisted ledger (no client date filter). |
  * | LUNC stake    | Crawl claimed `withdraw_rewards` / autostake txs via FCD (LCD event-search fallback; public LCDs prune ~100d) + pending when window reaches “now” | Same merge/replace/upsert plan as CEX | Full persisted ledger. |
- * | Monad stake   | Point-in-time pending rewards — **range ignored** | Always full-replace snapshot | Current pending rows (`earnedAt` = sync time). |
+ * | Monad stake   | Pending unclaimed from current getDelegations set — **range ignored** | Always full-replace snapshot | Current pending rows (`earnedAt` = sync time). |
  *
  * Date-only `YYYY-MM-DD` bounds are UTC day starts/ends. The picker is a
  * **sync** control, not a view filter: after sync, `/api/ledger` returns the

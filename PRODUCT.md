@@ -16,7 +16,7 @@ YieldScope syncs **earn-only** streams (not full portfolios) into one dashboard,
 |--------|----------------|
 | Binance | Simple Earn rewards / interest history |
 | OKX | Savings / Simple Earn interest via lending-history **`earnings`** (not principal `amt`), funding Auto lend bills (**type 400** / USDG **408** / Fixed **308·343**, plus legacy 126), and account Auto Earn (**type 381** `earnAmt`). Empty lending-history alone is not “no earnings.” If balance shows principal but all streams are empty → error (not silent ok/0). |
-| Monad | Staking unclaimed + accrued rewards via precompile `0x1000` |
+| Monad | Unclaimed staking rewards **only from validators the wallet is (or was) delegated to**, via precompile `0x1000` `getDelegations` → `getDelegator`. Not arbitrary transfers; not non-delegated validators. Pending snapshot only (no multi-year claim history on public RPC). |
 | LUNC | Terra Classic claimed staking rewards (FCD account history / autostake withdraws) + current pending via LCD |
 
 No Zerion sprawl. No tax engine. No APY farm browser.
@@ -40,7 +40,7 @@ Dashboard sync supports three user-facing modes:
 | Source | Sync / persist | Display |
 |--------|----------------|---------|
 | Binance / OKX | History fetched for the selected window. Custom → merge-replace inside the window (rows outside are kept). First run or “Re-download full history” → full replace. Later “Import missing” → incremental upsert from high-water. | Full persisted ledger (picker is **not** a view filter) |
-| Monad | Point-in-time pending rewards — **date range ignored**; always full-replace snapshot | Current pending rows (`earnedAt` = sync time) |
+| Monad | Point-in-time pending unclaimed from the wallet’s **current delegation set** (`getDelegations`) — **date range ignored**; always full-replace snapshot. Claimed `ClaimRewards` history is not indexed (RPC `eth_getLogs` ≤100 blocks). | Current pending rows per delegated validator (`earnedAt` = sync time) |
 | LUNC | Claimed `withdraw_rewards` / autostake history for the selected window (FCD; LCD fallback ~100d prune) + current pending when the range reaches today. Incremental when “Import missing”; pending snapshot still refreshes. | Claimed rows at tx time + pending snapshot (`earnedAt` = sync time) |
 
 Last-used window + auto-import preference are stored in the browser (`localStorage`). Auto-import never force-full-syncs and never runs on a cold ledger (no prior history).

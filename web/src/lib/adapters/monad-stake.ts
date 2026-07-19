@@ -16,6 +16,12 @@ export const MONAD_STAKING_PRECOMPILE =
  * Official staking ABI (docs.monad.xyz/reference/staking/api).
  * getDelegations returns (isDone, nextValId, valIds) — NOT (isDone, valIds, nextValId).
  * The wrong order silently decodes empty/non-empty pages as fake validatorId 0.
+ *
+ * Reward rule (product): only unclaimed rewards from validators returned by
+ * getDelegations for this wallet count. That set is the current (and residual)
+ * delegation list — not arbitrary wallet transfers, not validators never
+ * delegated to. Historical ClaimRewards logs are not indexed (public RPC
+ * eth_getLogs capped at 100 blocks), so pending unclaimed is the honest snapshot.
  */
 export const monadStakingAbi = parseAbi([
   "function getDelegator(uint64 validatorId, address delegator) returns (uint256 stake, uint256 accRewardPerToken, uint256 unclaimedRewards, uint256 deltaStake, uint256 nextDeltaStake, uint64 deltaEpoch, uint64 nextDeltaEpoch)",
@@ -38,6 +44,20 @@ export class MonadStakeAdapterError extends Error {
     super(message);
     this.name = "MonadStakeAdapterError";
   }
+}
+
+/** Validator ids are 1-based; drop 0 and duplicates (wrong-ABI / bad override symptom). */
+export function normalizeDelegationValIds(ids: readonly bigint[]): bigint[] {
+  const seen = new Set<string>();
+  const out: bigint[] = [];
+  for (const id of ids) {
+    if (id <= 0n) continue;
+    const key = id.toString();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(id);
+  }
+  return out;
 }
 
 export function decodeGetDelegatorResult(data: Hex): Omit<
@@ -108,14 +128,13 @@ export function decodeGetDelegationsResult(data: Hex): {
   return {
     done: decoded[0],
     nextValId: decoded[1],
-    // Validator ids are 1-based; 0 is never a real delegation (wrong-ABI symptom).
-    valIds: [...decoded[2]].filter((id) => id > 0n),
+    valIds: normalizeDelegationValIds([...decoded[2]]),
   };
 }
 
 /**
  * Map delegator states → earn rows.
- * Only unclaimed rewards become events (fail closed — no zero-amount stake filler rows).
+ * Only unclaimed rewards from delegated validators become events (fail closed).
  */
 export function delegatorStatesToEarnEvents(
   address: Address,
@@ -123,7 +142,7 @@ export function delegatorStatesToEarnEvents(
   asOf: Date = new Date(),
 ): EarnEvent[] {
   return states
-    .filter((s) => s.unclaimedRewards > 0n)
+    .filter((s) => s.validatorId > 0n && s.unclaimedRewards > 0n)
     .map((s) => ({
       id: `monad_stake:${address.toLowerCase()}:val${s.validatorId}:${asOf.toISOString()}`,
       source: "monad_stake" as const,
@@ -139,14 +158,18 @@ export function delegatorStatesToEarnEvents(
     }));
 }
 
+function hasStakePresence(s: DelegatorState): boolean {
+  return s.stake > 0n || s.deltaStake > 0n || s.nextDeltaStake > 0n;
+}
+
 /** Soft UX copy when sync succeeds with zero earn rows (not an error). */
 export function monadStakeEmptyInfo(states: DelegatorState[]): string {
-  const staked = states.filter((s) => s.stake > 0n || s.deltaStake > 0n);
+  const staked = states.filter(hasStakePresence);
   if (staked.length === 0) {
-    return "No Monad stake found for this wallet. Buying or holding MON does not earn staking rewards until you delegate to a validator. Pending unclaimed rewards appear here after you stake.";
+    return "No Monad delegation found for this wallet. Buying or holding MON does not earn staking rewards until you delegate to a validator. Unclaimed rewards from validators you’re delegated to appear here after you stake.";
   }
   const totalStake = staked.reduce((acc, s) => acc + s.stake, 0n);
-  return `Wallet is staked with ${staked.length} validator${staked.length === 1 ? "" : "s"} (${formatMon(totalStake)} MON) but has no unclaimed rewards yet. Claim history is not indexed on the public RPC (eth_getLogs is capped at 100 blocks) — only current pending is shown.`;
+  return `Wallet is delegated to ${staked.length} validator${staked.length === 1 ? "" : "s"} (${formatMon(totalStake)} MON) but has no unclaimed rewards yet. Only pending unclaimed from your current delegation set is shown — claimed reward history is not indexed on the public RPC (eth_getLogs capped at 100 blocks).`;
 }
 
 /** Exact wei → MON decimal string (18 dp). Exported for tests / shared formatting. */
@@ -164,6 +187,19 @@ export interface MonadStakeScanResult {
   /** Soft guidance when events is empty — never invents rows. */
   info?: string;
   states: DelegatorState[];
+  /** Validator IDs from getDelegations (after normalize / optional restrict). */
+  delegatedValidatorIds: bigint[];
+}
+
+export interface ScanMonadStakeOpts {
+  /**
+   * Optional restrict to a subset of getDelegations results.
+   * Never invents IDs: non-delegated validators are dropped (fail closed).
+   */
+  onlyValidatorIds?: bigint[];
+  /** @deprecated Use onlyValidatorIds — kept as alias for smoke/tests. */
+  validatorIds?: bigint[];
+  asOf?: Date;
 }
 
 /**
@@ -173,34 +209,48 @@ export interface MonadStakeScanResult {
 export async function fetchMonadStakeEarnEvents(
   address: Address,
   rpcCall: RpcCall,
-  opts?: { validatorIds?: bigint[]; asOf?: Date },
+  opts?: ScanMonadStakeOpts,
 ): Promise<EarnEvent[]> {
   const scan = await scanMonadStake(address, rpcCall, opts);
   return scan.events;
 }
 
-/** Full scan including soft empty-state info for the dashboard. */
+/**
+ * Full scan including soft empty-state info for the dashboard.
+ *
+ * Calculation rule:
+ * 1. Enumerate validators via getDelegations (paginated) — source of truth.
+ * 2. Read getDelegator only for those validator IDs.
+ * 3. Emit earn rows only where unclaimedRewards > 0 (pending accrued while
+ *    delegated; the precompile’s unclaimed balance is the protocol’s
+ *    delegation-period accrual for that (validator, delegator) pair).
+ * 4. Never attribute transfers or non-delegated validators.
+ */
 export async function scanMonadStake(
   address: Address,
   rpcCall: RpcCall,
-  opts?: { validatorIds?: bigint[]; asOf?: Date },
+  opts?: ScanMonadStakeOpts,
 ): Promise<MonadStakeScanResult> {
   if (!address || address === "0x0000000000000000000000000000000000000000") {
     throw new MonadStakeAdapterError("Invalid delegator address");
   }
 
-  let validatorIds = opts?.validatorIds ?? [];
-  if (validatorIds.length === 0) {
-    validatorIds = await listDelegations(address, rpcCall);
-  } else {
-    validatorIds = validatorIds.filter((id) => id > 0n);
-  }
+  const listed = await listDelegations(address, rpcCall);
+  const restrictRaw = opts?.onlyValidatorIds ?? opts?.validatorIds;
+  const restrict = restrictRaw
+    ? new Set(normalizeDelegationValIds(restrictRaw).map((id) => id.toString()))
+    : null;
+
+  const validatorIds = restrict
+    ? listed.filter((id) => restrict.has(id.toString()))
+    : listed;
 
   if (validatorIds.length === 0) {
     return {
       events: [],
       info: monadStakeEmptyInfo([]),
       states: [],
+      delegatedValidatorIds: [],
     };
   }
 
@@ -219,10 +269,12 @@ export async function scanMonadStake(
     events,
     info: events.length === 0 ? monadStakeEmptyInfo(states) : undefined,
     states,
+    delegatedValidatorIds: validatorIds,
   };
 }
 
-async function listDelegations(
+/** Paginated getDelegations — only real delegated validator IDs. */
+export async function listDelegations(
   address: Address,
   rpcCall: RpcCall,
 ): Promise<bigint[]> {
@@ -238,5 +290,5 @@ async function listDelegations(
     if (page.done || page.valIds.length === 0) break;
     startValId = page.nextValId;
   }
-  return ids;
+  return normalizeDelegationValIds(ids);
 }

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { encodeAbiParameters } from "viem";
+import { encodeAbiParameters, type Hex } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import {
   decodeGetDelegationsResult,
@@ -10,15 +10,20 @@ import {
   encodeGetDelegatorCall,
   fetchMonadStakeEarnEvents,
   formatMon,
+  listDelegations,
   monadStakeEmptyInfo,
   MonadStakeAdapterError,
+  normalizeDelegationValIds,
   scanMonadStake,
+  type RpcCall,
 } from "../../web/src/lib/adapters/monad-stake";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../fixtures/monad");
 const fixture = JSON.parse(
   readFileSync(join(root, "getDelegator-sample.json"), "utf8"),
 );
+
+const ADDR = "0x1111111111111111111111111111111111111111" as const;
 
 /** Official wire order: (bool isDone, uint64 nextValId, uint64[] valIds) */
 function encodeDelegationsPage(
@@ -32,6 +37,33 @@ function encodeDelegationsPage(
   );
 }
 
+function encodeDelegatorState(opts: {
+  stake?: bigint;
+  unclaimedRewards?: bigint;
+  accRewardPerToken?: bigint;
+}): Hex {
+  return encodeAbiParameters(
+    [
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "uint64" },
+      { type: "uint64" },
+    ],
+    [
+      opts.stake ?? 0n,
+      opts.accRewardPerToken ?? 0n,
+      opts.unclaimedRewards ?? 0n,
+      0n,
+      0n,
+      0n,
+      0n,
+    ],
+  );
+}
+
 describe("Monad staking reader", () => {
   it("decodes getDelegator fixture payload", () => {
     const decoded = decodeGetDelegatorResult(fixture.encodedGetDelegatorResult);
@@ -41,10 +73,7 @@ describe("Monad staking reader", () => {
   });
 
   it("encodes getDelegator call data with selector", () => {
-    const data = encodeGetDelegatorCall(
-      1n,
-      "0x1111111111111111111111111111111111111111",
-    );
+    const data = encodeGetDelegatorCall(1n, ADDR);
     expect(data.startsWith("0x573c1ce0")).toBe(true);
   });
 
@@ -62,9 +91,15 @@ describe("Monad staking reader", () => {
     expect(page.valIds).toEqual([]);
   });
 
+  it("filters bogus validator 0 from getDelegations pages", () => {
+    const encoded = encodeDelegationsPage(true, 0n, [0n, 1n, 0n, 2n]);
+    expect(decodeGetDelegationsResult(encoded).valIds).toEqual([1n, 2n]);
+    expect(normalizeDelegationValIds([0n, 1n, 0n, 1n, 3n])).toEqual([1n, 3n]);
+  });
+
   it("maps unclaimed rewards to EarnEvent", () => {
     const events = delegatorStatesToEarnEvents(
-      "0x1111111111111111111111111111111111111111",
+      ADDR,
       [
         {
           validatorId: 1n,
@@ -85,10 +120,26 @@ describe("Monad staking reader", () => {
     expect(events[0].amount).toBe("2.5");
   });
 
+  it("ignores unclaimed rows with bogus validatorId 0", () => {
+    const events = delegatorStatesToEarnEvents(ADDR, [
+      {
+        validatorId: 0n,
+        stake: 1n,
+        accRewardPerToken: 0n,
+        unclaimedRewards: 10n ** 18n,
+        deltaStake: 0n,
+        nextDeltaStake: 0n,
+        deltaEpoch: 0n,
+        nextDeltaEpoch: 0n,
+      },
+    ]);
+    expect(events).toEqual([]);
+  });
+
   it("preserves 1-wei dust rewards exactly", () => {
     expect(formatMon(1n)).toBe("0.000000000000000001");
     const events = delegatorStatesToEarnEvents(
-      "0x1111111111111111111111111111111111111111",
+      ADDR,
       [
         {
           validatorId: 1n,
@@ -119,34 +170,33 @@ describe("Monad staking reader", () => {
         nextDeltaEpoch: 0n,
       },
     ];
-    expect(
-      delegatorStatesToEarnEvents(
-        "0x1111111111111111111111111111111111111111",
-        states,
-      ),
-    ).toEqual([]);
+    expect(delegatorStatesToEarnEvents(ADDR, states)).toEqual([]);
     expect(monadStakeEmptyInfo(states)).toMatch(/no unclaimed rewards/i);
+    expect(monadStakeEmptyInfo(states)).toMatch(/delegated to/i);
   });
 
   it("explains bought-MON-but-not-staked", () => {
     expect(monadStakeEmptyInfo([])).toMatch(/Buying or holding MON/i);
+    expect(monadStakeEmptyInfo([])).toMatch(/validators you’re delegated to/i);
   });
 
-  it("fetchMonadStakeEarnEvents uses mock rpc and fails closed on empty", async () => {
-    const events = await fetchMonadStakeEarnEvents(
-      "0x1111111111111111111111111111111111111111",
-      async () => fixture.encodedGetDelegatorResult,
-      { validatorIds: [1n], asOf: new Date("2024-07-01T00:00:00.000Z") },
-    );
+  it("fetchMonadStakeEarnEvents uses getDelegations then getDelegator", async () => {
+    const delegations = encodeDelegationsPage(true, 0n, [1n]);
+    let calls = 0;
+    const rpc = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return delegations;
+      return fixture.encodedGetDelegatorResult as Hex;
+    });
+    const events = await fetchMonadStakeEarnEvents(ADDR, rpc, {
+      asOf: new Date("2024-07-01T00:00:00.000Z"),
+    });
     expect(events).toHaveLength(1);
     expect(events[0].amount).toBe("2.5");
+    expect(rpc).toHaveBeenCalledTimes(2);
 
     await expect(
-      fetchMonadStakeEarnEvents(
-        "0x1111111111111111111111111111111111111111",
-        async () => "0x" as `0x${string}`,
-        { validatorIds: [1n] },
-      ),
+      fetchMonadStakeEarnEvents(ADDR, async () => "0x" as Hex),
     ).rejects.toBeInstanceOf(MonadStakeAdapterError);
   });
 
@@ -154,37 +204,174 @@ describe("Monad staking reader", () => {
     await expect(
       fetchMonadStakeEarnEvents(
         "0x0000000000000000000000000000000000000000",
-        async () => "0x",
-        { validatorIds: [1n] },
+        async () => encodeDelegationsPage(true, 0n, [1n]),
       ),
     ).rejects.toThrow(/Invalid delegator/);
   });
 
-  it("lists delegations via getDelegations then fetches rewards", async () => {
-    const delegationsEncoded = encodeDelegationsPage(true, 0n, [1n]);
-    let calls = 0;
-    const rpc2 = vi.fn(async () => {
-      calls += 1;
-      if (calls === 1) return delegationsEncoded;
-      return fixture.encodedGetDelegatorResult;
-    });
-    const events = await fetchMonadStakeEarnEvents(
-      "0x1111111111111111111111111111111111111111",
-      rpc2,
-      { asOf: new Date("2024-07-01T00:00:00.000Z") },
-    );
-    expect(events).toHaveLength(1);
-    expect(rpc2).toHaveBeenCalled();
+  it("returns empty when not staked (no delegations)", async () => {
+    const empty = encodeDelegationsPage(true, 0n, []);
+    const scan = await scanMonadStake(ADDR, async () => empty);
+    expect(scan.events).toEqual([]);
+    expect(scan.delegatedValidatorIds).toEqual([]);
+    expect(scan.info).toMatch(/No Monad delegation found/i);
   });
 
-  it("returns empty info when no delegations", async () => {
-    const empty = encodeDelegationsPage(true, 0n, []);
-    const scan = await scanMonadStake(
-      "0x1111111111111111111111111111111111111111",
-      async () => empty,
+  it("attributes rewards across multi-validator delegations", async () => {
+    const page = encodeDelegationsPage(true, 0n, [1n, 7n, 154n]);
+    const byVal: Record<string, Hex> = {
+      "1": encodeDelegatorState({
+        stake: 10n ** 18n,
+        unclaimedRewards: 10n ** 18n,
+      }),
+      "7": encodeDelegatorState({
+        stake: 2n * 10n ** 18n,
+        unclaimedRewards: 5n * 10n ** 17n,
+      }),
+      "154": encodeDelegatorState({
+        stake: 10n ** 18n,
+        unclaimedRewards: 0n,
+      }),
+    };
+    let phase: "list" | "rewards" = "list";
+    let rewardIdx = 0;
+    const order = [1n, 7n, 154n];
+    const rpc: RpcCall = async () => {
+      if (phase === "list") {
+        phase = "rewards";
+        return page;
+      }
+      const id = order[rewardIdx]!;
+      rewardIdx += 1;
+      return byVal[id.toString()]!;
+    };
+    const scan = await scanMonadStake(ADDR, rpc, {
+      asOf: new Date("2024-07-01T00:00:00.000Z"),
+    });
+    expect(scan.delegatedValidatorIds).toEqual([1n, 7n, 154n]);
+    expect(scan.events).toHaveLength(2);
+    expect(scan.events.map((e) => e.meta?.validatorId).sort()).toEqual([
+      "1",
+      "7",
+    ]);
+    expect(scan.events.find((e) => e.meta?.validatorId === "1")?.amount).toBe(
+      "1",
     );
+    expect(scan.events.find((e) => e.meta?.validatorId === "7")?.amount).toBe(
+      "0.5",
+    );
+  });
+
+  it("ignores non-delegated validators even if onlyValidatorIds asks for them", async () => {
+    const page = encodeDelegationsPage(true, 0n, [1n]);
+    let calls = 0;
+    const rpc = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return page;
+      return encodeDelegatorState({
+        stake: 1n,
+        unclaimedRewards: 10n ** 18n,
+      });
+    });
+    // Ask for 1 (delegated) and 999 (never delegated) — 999 must not be queried.
+    const scan = await scanMonadStake(ADDR, rpc, {
+      onlyValidatorIds: [1n, 999n, 0n],
+      asOf: new Date("2024-07-01T00:00:00.000Z"),
+    });
+    expect(scan.delegatedValidatorIds).toEqual([1n]);
+    expect(scan.events).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledTimes(2); // list + getDelegator(1) only
+  });
+
+  it("returns zero events when restrict filters out all true delegations", async () => {
+    const page = encodeDelegationsPage(true, 0n, [1n, 2n]);
+    const scan = await scanMonadStake(ADDR, async () => page, {
+      onlyValidatorIds: [999n],
+    });
     expect(scan.events).toEqual([]);
-    expect(scan.info).toMatch(/No Monad stake found/i);
+    expect(scan.delegatedValidatorIds).toEqual([]);
+    expect(scan.states).toEqual([]);
+  });
+
+  it("listDelegations paginates and drops val 0", async () => {
+    const page1 = encodeDelegationsPage(false, 2n, [0n, 1n]);
+    const page2 = encodeDelegationsPage(true, 0n, [2n]);
+    let n = 0;
+    const ids = await listDelegations(ADDR, async () => {
+      n += 1;
+      return n === 1 ? page1 : page2;
+    });
+    expect(ids).toEqual([1n, 2n]);
+  });
+
+  it("listDelegations stops when a page returns no valIds", async () => {
+    const page = encodeDelegationsPage(false, 99n, []);
+    const ids = await listDelegations(ADDR, async () => page);
+    expect(ids).toEqual([]);
+  });
+
+  it("throws on empty getDelegator / getDelegations payloads", () => {
+    expect(() => decodeGetDelegatorResult("0x")).toThrow(/Empty getDelegator/);
+    expect(() => decodeGetDelegatorResult("" as Hex)).toThrow(
+      /Empty getDelegator/,
+    );
+    expect(() => decodeGetDelegationsResult("0x")).toThrow(
+      /Empty getDelegations/,
+    );
+  });
+
+  it("empty-info covers deltaStake / nextDeltaStake and plural validators", () => {
+    const deltaOnly = {
+      validatorId: 1n,
+      stake: 0n,
+      accRewardPerToken: 0n,
+      unclaimedRewards: 0n,
+      deltaStake: 1n,
+      nextDeltaStake: 0n,
+      deltaEpoch: 0n,
+      nextDeltaEpoch: 0n,
+    };
+    const nextDeltaOnly = {
+      ...deltaOnly,
+      validatorId: 2n,
+      deltaStake: 0n,
+      nextDeltaStake: 1n,
+    };
+    expect(monadStakeEmptyInfo([deltaOnly, nextDeltaOnly])).toMatch(
+      /2 validators/,
+    );
+  });
+
+  it("scan soft-info when delegated but no unclaimed rewards", async () => {
+    const page = encodeDelegationsPage(true, 0n, [1n]);
+    let calls = 0;
+    const scan = await scanMonadStake(ADDR, async () => {
+      calls += 1;
+      if (calls === 1) return page;
+      return encodeDelegatorState({ stake: 10n ** 18n, unclaimedRewards: 0n });
+    });
+    expect(scan.events).toEqual([]);
+    expect(scan.info).toMatch(/delegated to 1 validator /i);
+  });
+
+  it("honors deprecated validatorIds restrict alias", async () => {
+    const page = encodeDelegationsPage(true, 0n, [1n, 2n]);
+    let calls = 0;
+    const rpc = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return page;
+      return encodeDelegatorState({
+        stake: 1n,
+        unclaimedRewards: 10n ** 18n,
+      });
+    });
+    const scan = await scanMonadStake(ADDR, rpc, {
+      validatorIds: [2n],
+      asOf: new Date("2024-07-01T00:00:00.000Z"),
+    });
+    expect(scan.delegatedValidatorIds).toEqual([2n]);
+    expect(scan.events).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledTimes(2);
   });
 
   it("round-trips encode/decode with viem", () => {
@@ -204,4 +391,5 @@ describe("Monad staking reader", () => {
     expect(decoded.stake).toBe(1000n);
     expect(decoded.unclaimedRewards).toBe(3n);
   });
+
 });

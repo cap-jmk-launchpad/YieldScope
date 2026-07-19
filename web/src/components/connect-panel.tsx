@@ -316,7 +316,9 @@ export function ConnectPanel() {
               the Phantom extension here (not only in Brave) so we stay in-tab —
               no <code>phantom://</code> handoff. On phone: open this site in
               Phantom&apos;s in-app browser. Then hit Save connection. Use Monad
-              (not Monad Testnet) if prompted.
+              (not Monad Testnet) if prompted. Sync reads{" "}
+              <strong>unclaimed rewards from validators you’re delegated to</strong>{" "}
+              only — not wallet transfers, not validators you never staked with.
             </p>
             <div className="wallet-connect">
               <NavWalletButton variant="panel" />

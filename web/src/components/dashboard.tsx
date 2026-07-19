@@ -1012,11 +1012,11 @@ export function Dashboard({
           after each source’s last synced reward (upsert — older rows stay).
           Auto-import runs once when you open the dashboard if you already have
           history. Re-download full history replaces CEX/LUNC claim streams.
-          Monad always refreshes current pending unclaimed rewards only (no
-          claim history — public RPC caps eth_getLogs at 100 blocks). Holding
-          MON is not staking: delegate to a validator first. LUNC pending is a
-          point-in-time snapshot and may replace prior pending
-          rows.
+          Monad always refreshes unclaimed rewards from validators you’re
+          delegated to (current delegation set only — no claim history; public
+          RPC caps eth_getLogs at 100 blocks). Holding MON is not staking:
+          delegate first. LUNC pending is a point-in-time snapshot and may
+          replace prior pending rows.
           {selectedWindowLabel
             ? ` Selected window: ${selectedWindowLabel}.`
             : ""}
@@ -1286,8 +1286,8 @@ export function Dashboard({
               <tr>
                 <td colSpan={5} className="empty">
                   No earnings yet. Connect Binance, OKX, or a Monad wallet, then
-                  sync. Monad shows unclaimed staking rewards only — buying MON
-                  is not enough; you must delegate/stake to a validator.
+                  sync. Monad shows unclaimed rewards from validators you’re
+                  delegated to — buying MON is not enough; you must stake.
                 </td>
               </tr>
             ) : (
