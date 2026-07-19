@@ -1885,6 +1885,93 @@ describe("ledger-db persistence", () => {
     ]);
   });
 
+  it("loadDbLedger byAsset sort ties on equal / non-finite totals", async () => {
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return mockEarnEventsPageQuery(async () => ({ data: [], error: null }));
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  asset: "USDT",
+                  source: "okx",
+                  event_count: 1,
+                  total_amount: 10,
+                },
+                {
+                  asset: "USDT",
+                  source: "binance",
+                  event_count: 1,
+                  total_amount: 10,
+                },
+                {
+                  asset: "AAA",
+                  source: "okx",
+                  event_count: 1,
+                  total_amount: "not-a-number",
+                },
+                {
+                  asset: "ZZZ",
+                  source: "binance",
+                  event_count: 1,
+                  total_amount: "also-nan",
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
+    const snap = await loadDbLedger("u1", { eventsMode: "page" });
+    // Equal totals → asset then source; non-finite → asset localeCompare.
+    expect(snap.aggregates.byAsset.map((a) => `${a.asset}:${a.source}`)).toEqual(
+      ["AAA:okx", "USDT:binance", "USDT:okx", "ZZZ:binance"],
+    );
+  });
+
   it("loadDbLedger eventsMode=none skips earn_events", async () => {
     let eventsQueried = false;
     from.mockImplementation((table: string) => {
