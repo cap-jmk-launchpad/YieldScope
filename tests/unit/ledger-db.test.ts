@@ -120,6 +120,56 @@ describe("ledger-db persistence", () => {
     });
   });
 
+  it("persistSourceSync clears last_error for not_connected status", async () => {
+    let connectionPayload: Record<string, unknown> | null = null;
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        return {
+          delete: () => ({
+            eq: () => ({
+              eq: async () => ({ error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          upsert: async (row: Record<string, unknown>) => {
+            connectionPayload = row;
+            return { error: null };
+          },
+        };
+      }
+      if (table === "sync_runs") {
+        return { insert: async () => ({ error: null }) };
+      }
+      return {};
+    });
+
+    const { persistSourceSync } = await import("../../web/src/lib/ledger-db");
+    await persistSourceSync({
+      userId: "u1",
+      source: "monad_stake",
+      status: "not_connected",
+      events: [],
+      error: "should be ignored",
+      info: "should also be ignored",
+    });
+    expect(connectionPayload).toMatchObject({
+      status: "not_connected",
+      last_error: null,
+    });
+  });
+
   it("persistSourceSync fails when delete errors", async () => {
     from.mockImplementation((table: string) => {
       if (table === "profiles") {
