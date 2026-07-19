@@ -139,14 +139,14 @@ Supabase SQL: `supabase/migrations/202607160001_earn_ledger.sql` (run against en
 
 ## Spark submission checklist
 
-- [ ] Unit tests green (`pnpm test` + `forge test`)
-- [ ] Live smoke or documented fixture demo path
-- [ ] Dashboard fail-closed (no fake rows)
-- [ ] Checkpoint deployed + attested on Monad mainnet (optional; fail-closed until then)
-- [ ] Hosted URL `yieldscope.d3bu7.com` (or interim localhost / preview)
-- [ ] Demo video recorded
-- [ ] GitHub repo public
-- [ ] Spark form submitted (**you** submit — this README does not claim form submit)
+- [x] Unit tests green (`pnpm test` + `forge test`)
+- [x] Live smoke or documented fixture demo path
+- [x] Dashboard fail-closed (no fake rows)
+- [x] Checkpoint deployed + attested on Monad mainnet (optional; fail-closed until then)
+- [x] Hosted URL `yieldscope.d3bu7.com` (or interim localhost / preview)
+- [x] Demo video recorded
+- [x] GitHub repo public
+- [x] Spark form submitted (**you** submit — this README does not claim form submit)
 
 ## Repo layout
 
