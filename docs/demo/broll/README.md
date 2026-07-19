@@ -1,24 +1,24 @@
 # Demo B-roll (Remotion)
 
-Two silent, seamless **10s** loops (1920×1080 · 30fps · H.264) in YieldScope “Ledger at dusk” colors.
+Two silent, seamless **10s** loops (1920×1080 · 30fps · H.264) in YieldScope “Ledger at dusk.”
 
 | File | Concept |
 |------|---------|
-| `scattered-ledger.mp4` | Fragmented streams → one ledger line |
+| `scattered-ledger.mp4` | Fragmented streams → one ledger / checkpoint |
 | `source-weave.mp4` | Multi-lane weave → one earn pulse |
 
-No logo/text — add in the edit if needed.
+**Motion craft:** anticipation → staggered converge → readable hold → overlapping release; brand bezier `cubic-bezier(0.16, 1, 0.3, 1)`; secondary traveling energy; no logo/text.
 
 ## Preview
 
 ```bash
-pnpm --dir demo-broll dev
+pnpm demo:broll:studio
 ```
 
-## Render both
+## Render both (higher quality)
 
 ```bash
-pnpm --dir demo-broll render
+pnpm demo:broll
 ```
 
 Outputs overwrite files in this folder.

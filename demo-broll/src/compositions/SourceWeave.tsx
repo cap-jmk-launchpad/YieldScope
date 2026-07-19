@@ -1,90 +1,164 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   AbsoluteFill,
-  Easing,
   interpolate,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
 import { InkBackground } from "../components/InkBackground";
+import {
+  clamp,
+  easeEditorial,
+  easeExpressive,
+  easeStandard,
+  lerp,
+  storyProgress,
+  wrap01,
+} from "../motion";
 import { tokens } from "../tokens";
 
-type Lane = {
+type LaneDef = {
   yNorm: number;
   amp: number;
+  freq: number;
   phase: number;
   weight: number;
+  /** Hierarchy rank — lower weaves first */
+  rank: number;
 };
 
-/** Four unnamed source lanes — geometry only, no labels. */
-const LANES: Lane[] = [
-  { yNorm: 0.32, amp: 48, phase: 0, weight: 1.8 },
-  { yNorm: 0.42, amp: 38, phase: 0.7, weight: 2.2 },
-  { yNorm: 0.58, amp: 42, phase: 1.4, weight: 1.6 },
-  { yNorm: 0.68, amp: 36, phase: 2.1, weight: 2.0 },
+/** Four unnamed source lanes — geometric only. */
+const LANES: LaneDef[] = [
+  { yNorm: 0.28, amp: 56, freq: 2.2, phase: 0.0, weight: 1.7, rank: 1 },
+  { yNorm: 0.4, amp: 44, freq: 2.8, phase: 1.1, weight: 2.3, rank: 0 },
+  { yNorm: 0.6, amp: 48, freq: 2.5, phase: 2.2, weight: 1.9, rank: 0 },
+  { yNorm: 0.72, amp: 40, freq: 3.1, phase: 3.0, weight: 1.6, rank: 2 },
 ];
 
-function loopPulse(t: number): number {
-  return 0.5 - 0.5 * Math.cos(t * Math.PI * 2);
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-function lanePath(
+function buildLanePath(
   width: number,
   height: number,
-  lane: Lane,
+  lane: LaneDef,
   weave: number,
   travel: number,
+  anti: number,
 ): string {
   const baseY = lane.yNorm * height;
   const targetY = height * 0.5;
-  const points: string[] = [];
-  const steps = 64;
+  // Anticipation: lanes drift apart slightly before lock
+  const spreadY = baseY + (baseY - targetY) * anti * 0.4;
+  const steps = 96;
+  const parts: string[] = [];
+
   for (let i = 0; i <= steps; i++) {
     const u = i / steps;
     const x = u * width;
-    // Horizontal travel phase for living motion (seamless via sin)
+    // Frequency phase-locks toward center as weave rises (coherence)
+    const freq = lerp(lane.freq, 1.15, weave);
+    const amp = lane.amp * (1 - weave * 0.92) * (1 + anti * 0.25);
     const wave =
-      Math.sin(u * Math.PI * 3 + lane.phase + travel * Math.PI * 2) *
-      lane.amp *
-      (1 - weave * 0.85);
-    const y = lerp(baseY + wave, targetY, Easing.inOut(Easing.cubic)(weave));
-    points.push(i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`);
+      Math.sin(u * Math.PI * freq + lane.phase + travel * Math.PI * 2) * amp;
+    // Editorial ease into braid
+    const lock = easeEditorial(weave);
+    const y = lerp(spreadY + wave, targetY, lock);
+    parts.push(i === 0 ? `M ${x.toFixed(2)} ${y.toFixed(2)}` : `L ${x.toFixed(2)} ${y.toFixed(2)}`);
   }
-  return points.join(" ");
+  return parts.join(" ");
+}
+
+function beadOnLane(
+  width: number,
+  height: number,
+  lane: LaneDef,
+  weave: number,
+  travel: number,
+  anti: number,
+  u: number,
+): [number, number] {
+  const baseY = lane.yNorm * height;
+  const targetY = height * 0.5;
+  const spreadY = baseY + (baseY - targetY) * anti * 0.4;
+  const x = u * width;
+  const freq = lerp(lane.freq, 1.15, weave);
+  const amp = lane.amp * (1 - weave * 0.92) * (1 + anti * 0.25);
+  const wave =
+    Math.sin(u * Math.PI * freq + lane.phase + travel * Math.PI * 2) * amp;
+  const lock = easeEditorial(weave);
+  const y = lerp(spreadY + wave, targetY, lock);
+  return [x, y];
 }
 
 /**
- * V2 — Multiple source lanes weave into one central earn pulse, then open again.
- * Seamless 10s loop.
+ * V2 — Source lanes weave into one earn pulse.
+ * Craft: anticipation spread → phase-lock braid → hold pulse → release.
+ * Traveling beads + ring follow-through as secondary action.
  */
 export const SourceWeave: React.FC = () => {
   const frame = useCurrentFrame();
   const { width, height, durationInFrames } = useVideoConfig();
   const t = frame / durationInFrames;
-  const weave = loopPulse(t);
-  const travel = t; // full-period wrap → seamless
+  const { converge, anticipate, hold } = storyProgress(t);
+  const travel = wrap01(t);
+  const flow = wrap01(t * 1.2);
 
-  const pulseR = interpolate(weave, [0, 1], [4, 18], {
-    easing: Easing.out(Easing.cubic),
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
+  const sorted = useMemo(
+    () => [...LANES].sort((a, b) => a.rank - b.rank),
+    [],
+  );
+
+  const lanes = useMemo(() => {
+    return sorted.map((lane, i) => {
+      const delay = (i / Math.max(1, sorted.length - 1)) * 0.12;
+      const local = Math.max(0, Math.min(1, converge - delay * 0.5));
+      const weave = easeExpressive(local);
+      const d = buildLanePath(width, height, lane, weave, travel, anticipate);
+      const opacity = interpolate(
+        weave,
+        [0, 0.25, 0.7, 1],
+        [0.32 + i * 0.04, 0.72, 0.5, 0.28 + i * 0.04],
+        clamp,
+      );
+      const beadU = wrap01(flow + i * 0.19 + delay);
+      const bead = beadOnLane(
+        width,
+        height,
+        lane,
+        weave,
+        travel,
+        anticipate,
+        beadU,
+      );
+      const dashOffset = -flow * 160 - i * 22;
+      return { d, opacity, weight: lane.weight, bead, dashOffset, weave };
+    });
+  }, [sorted, converge, anticipate, width, height, travel, flow]);
+
+  const pulseR = interpolate(converge, [0, 0.5, 1], [3, 16, 5], {
+    ...clamp,
+    easing: easeExpressive,
   });
-  const pulseOpacity = interpolate(weave, [0, 0.35, 0.7, 1], [0.2, 0.75, 0.9, 0.2], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
+  const pulseOpacity = interpolate(
+    converge,
+    [0, 0.35, 0.55, 0.8, 1],
+    [0.12, 0.7, 0.95, 0.4, 0.12],
+    clamp,
+  );
+  const ringR = interpolate(hold, [0, 1], [8, 42], {
+    ...clamp,
+    easing: easeStandard,
   });
-  const coreLineOpacity = interpolate(weave, [0, 0.4, 0.75, 1], [0.1, 0.55, 0.7, 0.1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+  const ringOpacity = interpolate(hold, [0, 0.4, 1], [0, 0.45, 0], clamp);
+  const coreLineOpacity = interpolate(
+    converge,
+    [0, 0.35, 0.7, 1],
+    [0.06, 0.4, 0.65, 0.08],
+    clamp,
+  );
+  const bgIntensity = interpolate(converge, [0, 1], [0.9, 1.2], clamp);
 
   return (
     <AbsoluteFill>
-      <InkBackground />
+      <InkBackground intensity={bgIntensity} />
       <AbsoluteFill>
         <svg
           width={width}
@@ -93,65 +167,96 @@ export const SourceWeave: React.FC = () => {
           style={{ position: "absolute", inset: 0 }}
         >
           <defs>
-            <linearGradient id="weaveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <linearGradient id="sw-lane" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor={tokens.accent} stopOpacity="0" />
-              <stop offset="15%" stopColor={tokens.accent} stopOpacity="0.55" />
+              <stop offset="12%" stopColor={tokens.accent} stopOpacity="0.45" />
               <stop offset="50%" stopColor={tokens.accent} stopOpacity="0.95" />
-              <stop offset="85%" stopColor={tokens.accent} stopOpacity="0.55" />
+              <stop offset="88%" stopColor={tokens.accent} stopOpacity="0.45" />
               <stop offset="100%" stopColor={tokens.accent} stopOpacity="0" />
             </linearGradient>
-            <radialGradient id="pulseGrad" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor={tokens.accent} stopOpacity="0.85" />
-              <stop offset="55%" stopColor={tokens.accent} stopOpacity="0.25" />
+            <radialGradient id="sw-pulse" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor={tokens.accent} stopOpacity="0.9" />
+              <stop offset="45%" stopColor={tokens.accent} stopOpacity="0.28" />
               <stop offset="100%" stopColor={tokens.accent} stopOpacity="0" />
             </radialGradient>
+            <filter id="sw-soft" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="1.4" />
+            </filter>
           </defs>
 
-          {/* Unified core line under weave */}
+          {/* Unified core under braid */}
           <line
-            x1={width * 0.12}
+            x1={width * 0.1}
             y1={height * 0.5}
-            x2={width * 0.88}
+            x2={width * 0.9}
             y2={height * 0.5}
-            stroke="url(#weaveGrad)"
-            strokeWidth={1.5}
+            stroke="url(#sw-lane)"
+            strokeWidth={1.4}
             opacity={coreLineOpacity}
           />
 
-          {LANES.map((lane, i) => {
-            const opacity = interpolate(
-              weave,
-              [0, 0.3, 0.7, 1],
-              [0.35 + i * 0.05, 0.65, 0.45, 0.35 + i * 0.05],
-              { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
-            );
-            return (
+          {lanes.map((lane, i) => (
+            <g key={i}>
               <path
-                key={i}
-                d={lanePath(width, height, lane, weave, travel)}
+                d={lane.d}
                 fill="none"
-                stroke="url(#weaveGrad)"
+                stroke="url(#sw-lane)"
                 strokeWidth={lane.weight}
                 strokeLinecap="round"
-                opacity={opacity}
+                opacity={lane.opacity * 0.4}
+                strokeDasharray="3 16"
+                strokeDashoffset={lane.dashOffset}
               />
-            );
-          })}
+              <path
+                d={lane.d}
+                fill="none"
+                stroke="url(#sw-lane)"
+                strokeWidth={lane.weight}
+                strokeLinecap="round"
+                opacity={lane.opacity}
+              />
+              <circle
+                cx={lane.bead[0]}
+                cy={lane.bead[1]}
+                r={2 + lane.weave * 1.8}
+                fill={tokens.accent}
+                opacity={0.4 + lane.weave * 0.4}
+              />
+            </g>
+          ))}
 
-          {/* Single earn pulse at center when woven */}
+          {/* Follow-through ring on hold */}
+          <circle
+            cx={width * 0.5}
+            cy={height * 0.5}
+            r={ringR}
+            fill="none"
+            stroke={tokens.accent}
+            strokeWidth={1.25}
+            opacity={ringOpacity}
+          />
+
+          <circle
+            cx={width * 0.5}
+            cy={height * 0.5}
+            r={pulseR * 1.6}
+            fill="url(#sw-pulse)"
+            opacity={pulseOpacity * 0.55}
+            filter="url(#sw-soft)"
+          />
           <circle
             cx={width * 0.5}
             cy={height * 0.5}
             r={pulseR}
-            fill="url(#pulseGrad)"
+            fill="url(#sw-pulse)"
             opacity={pulseOpacity}
           />
           <circle
             cx={width * 0.5}
             cy={height * 0.5}
-            r={interpolate(weave, [0, 1], [2, 5])}
-            fill={tokens.accent}
-            opacity={pulseOpacity * 0.9}
+            r={interpolate(converge, [0, 1], [1.5, 4.5], clamp)}
+            fill={tokens.paper}
+            opacity={pulseOpacity * 0.85}
           />
         </svg>
       </AbsoluteFill>

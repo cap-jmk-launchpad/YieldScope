@@ -28,6 +28,8 @@ for (const job of jobs) {
       out,
       "--codec=h264",
       "--image-format=jpeg",
+      "--jpeg-quality=92",
+      "--crf=16",
       `--port=${job.port}`,
       "--concurrency=1",
     ],
