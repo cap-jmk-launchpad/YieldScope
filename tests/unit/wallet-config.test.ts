@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   RAINBOWKIT_DEMO_PROJECT_ID,
+  YIELDSCOPE_WALLET_GROUP_IDS,
   isDemoWalletConnectProjectId,
+  preferInBrowserDownloadUrls,
   resolveWalletConnectProjectId,
 } from "../../web/src/lib/wallet-config";
 
@@ -46,5 +48,47 @@ describe("resolveWalletConnectProjectId", () => {
         nodeEnv: "production",
       }).source,
     ).toBe("prod-demo-fallback");
+  });
+});
+
+describe("in-browser wallet preference", () => {
+  it("lists Phantom + injected before WalletConnect, in separate groups", () => {
+    expect(YIELDSCOPE_WALLET_GROUP_IDS).toEqual([
+      {
+        groupName: "This browser",
+        walletIds: ["phantom", "injected", "metaMask", "okx"],
+      },
+      {
+        groupName: "Phone (QR)",
+        walletIds: ["walletConnect"],
+      },
+    ]);
+    const browserIds = YIELDSCOPE_WALLET_GROUP_IDS[0].walletIds;
+    expect(browserIds[0]).toBe("phantom");
+    expect(browserIds).not.toContain("walletConnect");
+    expect(browserIds).not.toContain("rainbow");
+  });
+
+  it("strips mobile / protocol-handoff download URLs, keeps extension store links", () => {
+    expect(
+      preferInBrowserDownloadUrls({
+        android: "https://play.google.com/store/apps/details?id=app.phantom",
+        ios: "https://apps.apple.com/app/phantom",
+        mobile: "https://phantom.app/download",
+        qrCode: "https://phantom.app/download",
+        browserExtension: "https://phantom.app/download",
+        chrome:
+          "https://chrome.google.com/webstore/detail/phantom/bfnaelmomeimhlpmgjnjophhpkkoljpa",
+        firefox: "https://addons.mozilla.org/firefox/addon/phantom-app/",
+      }),
+    ).toEqual({
+      chrome:
+        "https://chrome.google.com/webstore/detail/phantom/bfnaelmomeimhlpmgjnjophhpkkoljpa",
+      firefox: "https://addons.mozilla.org/firefox/addon/phantom-app/",
+    });
+    expect(preferInBrowserDownloadUrls(undefined)).toEqual({
+      chrome: undefined,
+      firefox: undefined,
+    });
   });
 });

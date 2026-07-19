@@ -3,6 +3,7 @@
 import { useAccount } from "wagmi";
 import { useEffect, useState, type FormEvent } from "react";
 import { NavWalletButton } from "@/components/nav-wallet-button";
+import { DEFAULT_MONAD_CHAIN_ID } from "@/lib/contracts";
 
 interface CredentialStatus {
   configured: boolean;
@@ -92,7 +93,7 @@ export function ConnectPanel() {
     if (luncAddress.trim()) body.luncAddress = luncAddress.trim();
     if (isConnected && address) {
       body.walletAddress = address;
-      body.chainId = chainId ?? 10143;
+      body.chainId = chainId ?? DEFAULT_MONAD_CHAIN_ID;
     }
 
     try {
@@ -257,10 +258,14 @@ export function ConnectPanel() {
           <SavedBadge status={status.monad_stake} label="Wallet" />
         </div>
         <p className="hint">
-          Connect Phantom, MetaMask, or WalletConnect on Monad testnet (chain
-          10143), then hit Save connection so we remember it for sync. On phone:
-          open this site in Phantom&apos;s browser, or scan the WalletConnect QR
-          from desktop. Enable Monad Testnet in Phantom settings if prompted.
+          Connect on Monad mainnet (chain {DEFAULT_MONAD_CHAIN_ID}) in{" "}
+          <strong>this browser</strong> — use Phantom / MetaMask / OKX from the
+          “This browser” group so we stay here (no handoff to Brave or another
+          app). Install the Phantom extension in the browser you&apos;re using;
+          if Phantom only lives in Brave, the OS may still open Brave via{" "}
+          <code>phantom://</code>. On phone: open this site in Phantom&apos;s
+          browser, or pick “Phone (QR)” and scan with the Phantom mobile app.
+          Then hit Save connection. Use Monad (not Monad Testnet) if prompted.
         </p>
         <div className="wallet-connect">
           <NavWalletButton variant="panel" />

@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Script, console2} from "forge-std/Script.sol";
 import {EarningsCheckpoint} from "../src/EarningsCheckpoint.sol";
 
-/// @notice Deploy EarningsCheckpoint to Monad testnet (chain id 10143).
+/// @notice Deploy EarningsCheckpoint (prefer Monad mainnet chain id 143).
 /// @dev forge script script/Deploy.s.sol:Deploy --rpc-url $MONAD_RPC_URL --broadcast --private-key $DEPLOYER_PK
 contract Deploy is Script {
     function run() external {

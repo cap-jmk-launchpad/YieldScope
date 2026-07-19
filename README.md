@@ -1,6 +1,6 @@
 # YieldScope
 
-Personal earn ledger for **Binance Simple Earn**, **OKX savings**, and **Monad staking**, with an onchain `EarningsCheckpoint` on Monad testnet.
+Personal earn ledger for **Binance Simple Earn**, **OKX savings**, and **Monad staking** (mainnet), with an optional onchain `EarningsCheckpoint` (mainnet deploy TBD — attest fail-closed until configured).
 
 > I earn on Binance and OKX and stake on Monad, and I still can’t answer “what did I make this month?” without three apps and a spreadsheet. YieldScope syncs those earn streams into one dashboard and posts a hash checkpoint on Monad so the number is portable and verifiable — built test-first so every source actually works.
 
@@ -57,7 +57,7 @@ Supabase redirect URLs (Auth → URL Configuration):
 
 - **Account:** Supabase email/password at `/login`, `/register`, and `/forgot-password` → `/auth/reset-password`. Registration requires email confirmation (Supabase Dashboard → Auth → confirm email) — that link is the only bot gate (no captcha). Password reset emails verify on the API host then redirect to `/auth/reset-password` (`?code=` or `#access_token=`).
 - **CEX:** Connect UI is **read-only API keys** for Binance and OKX (sessionStorage). Server sync also accepts env vars for smoke (`BINANCE_*`, `OKX_*`).
-- **Wallet:** RainbowKit + wagmi on Monad testnet (chain `10143`) for stake reads and attestation. Suggested connectors: Phantom (EVM), MetaMask, Rainbow, OKX, injected, and WalletConnect (mobile). LUNC remains Terra address paste — not Solana Phantom.
+- **Wallet:** RainbowKit + wagmi on Monad **mainnet** (chain `143`) for stake reads. Connectors prefer **this browser** (Phantom / injected / MetaMask / OKX) before WalletConnect QR for phone — avoids `phantom://` handoff to another installed browser (e.g. Brave). Attest stays disabled until `NEXT_PUBLIC_CHECKPOINT_ADDRESS` points at a mainnet contract. LUNC remains Terra address paste — not Solana Phantom.
 - **Fail closed:** `/app/*` requires a session; `/api/sync` and `/api/checkpoint/*` return 401 when unauthenticated. Broken adapters never invent earn rows.
 
 ## Live smoke (before demo recording)
@@ -68,25 +68,27 @@ SYNC_LIVE=1 \
 BINANCE_API_KEY=... BINANCE_API_SECRET=... \
 OKX_API_KEY=... OKX_API_SECRET=... OKX_PASSPHRASE=... \
 MONAD_DEMO_ADDRESS=0x... \
-MONAD_RPC_URL=https://testnet-rpc.monad.xyz \
+MONAD_RPC_URL=https://rpc.monad.xyz \
 pnpm test:smoke
 ```
 
 Live smoke is **gated** by `SYNC_LIVE=1` and is skipped in CI without secrets.
 
-## Deploy EarningsCheckpoint (Monad testnet, chain 10143)
+## Deploy EarningsCheckpoint (Monad mainnet, chain 143)
+
+Wallet connect already targets mainnet. Attest remains fail-closed until a contract is deployed and `NEXT_PUBLIC_CHECKPOINT_ADDRESS` is set (do not invent an address).
 
 ```bash
 cd contracts
-export DEPLOYER_PK=0x...          # funded testnet key
-export MONAD_RPC_URL=https://testnet-rpc.monad.xyz
+export DEPLOYER_PK=0x...          # funded mainnet key
+export MONAD_RPC_URL=https://rpc.monad.xyz
 forge test
 forge script script/Deploy.s.sol:Deploy --rpc-url $MONAD_RPC_URL --broadcast
 ```
 
-Set `NEXT_PUBLIC_CHECKPOINT_ADDRESS` to the printed address. Optional verify via Monad agents verification API (see monskills scaffold notes).
+Set `NEXT_PUBLIC_CHECKPOINT_ADDRESS` to the printed address and rebuild the web image. Optional verify via Monadscan / Monad agents verification API.
 
-If no deployer key is available in this environment, the contract is still fully tested with Foundry; deploy before the demo attest step.
+Historical Spark deploys used Monad testnet (`10143` / `https://testnet-rpc.monad.xyz`) — keep that only for local testnet experiments.
 
 ## Public edge (yieldscope.d3bu7.com)
 
@@ -140,7 +142,7 @@ Supabase SQL: `supabase/migrations/202607160001_earn_ledger.sql` (run against en
 - [ ] Unit tests green (`pnpm test` + `forge test`)
 - [ ] Live smoke or documented fixture demo path
 - [ ] Dashboard fail-closed (no fake rows)
-- [ ] Checkpoint deployed + attested on Monad testnet
+- [ ] Checkpoint deployed + attested on Monad mainnet (optional; fail-closed until then)
 - [ ] Hosted URL `yieldscope.d3bu7.com` (or interim localhost / preview)
 - [ ] Demo video recorded
 - [ ] GitHub repo public

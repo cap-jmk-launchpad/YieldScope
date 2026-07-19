@@ -1,5 +1,6 @@
 import type { CexCredentials } from "@/lib/adapters/types";
 import { parseLuncAddress } from "@/lib/adapters/lunc-stake";
+import { DEFAULT_MONAD_CHAIN_ID } from "@/lib/contracts";
 import {
   decryptSecret,
   encryptSecret,
@@ -322,7 +323,7 @@ export async function saveCredentials(
   }
 
   if (validated.data.walletAddress) {
-    const chainId = validated.data.chainId ?? 10143;
+    const chainId = validated.data.chainId ?? DEFAULT_MONAD_CHAIN_ID;
     const { error: walletErr } = await admin.from("wallet_connections").upsert(
       {
         profile_id: profileId,

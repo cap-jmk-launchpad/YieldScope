@@ -61,4 +61,5 @@ ETH / Lido / Base / multi-chain DeFi aggregators — only after Phase 1 DoD is g
 
 - App: `yieldscope.d3bu7.com`
 - Data: Supabase on blackpearl / engine
-- Checkpoint: Monad testnet (chain id `10143`) for Spark; mainnet later
+- Wallet / stake sync: Monad **mainnet** (chain id `143`, RPC `https://rpc.monad.xyz`)
+- Checkpoint: `EarningsCheckpoint` not deployed on mainnet yet (attest fail-closed). Historical Spark deploys used testnet `10143`.

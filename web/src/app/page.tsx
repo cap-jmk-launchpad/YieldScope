@@ -209,7 +209,7 @@ export default function HomePage() {
               <br />
               merkle · sync window
               <br />
-              chain id 10143
+              chain id 143
             </code>
           </figure>
         </div>

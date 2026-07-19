@@ -6,22 +6,15 @@ import {
   RainbowKitProvider,
   darkTheme,
 } from "@rainbow-me/rainbowkit";
-import {
-  injectedWallet,
-  metaMaskWallet,
-  okxWallet,
-  phantomWallet,
-  rainbowWallet,
-  walletConnectWallet,
-} from "@rainbow-me/rainbowkit/wallets";
 import "@rainbow-me/rainbowkit/styles.css";
 import { type ReactNode, useState } from "react";
 import { WagmiProvider, http } from "wagmi";
-import { monadTestnet } from "@/lib/contracts";
+import { defaultMonadRpcUrl, monadMainnet } from "@/lib/contracts";
 import {
   isDemoWalletConnectProjectId,
   resolveWalletConnectProjectId,
 } from "@/lib/wallet-config";
+import { buildYieldScopeWalletList } from "@/lib/wallet-list";
 
 const { projectId, source: projectIdSource } = resolveWalletConnectProjectId({
   envProjectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID,
@@ -46,27 +39,14 @@ const config = getDefaultConfig({
     "Monitor Binance, OKX, Monad stake, and LUNC rewards in one place.",
   appUrl: "https://yieldscope.d3bu7.com",
   projectId,
-  chains: [monadTestnet],
+  // Monad mainnet (143) — Phantom connects in mainnet mode, not testnet.
+  chains: [monadMainnet],
   transports: {
-    [monadTestnet.id]: http(
-      process.env.NEXT_PUBLIC_MONAD_RPC_URL ?? "https://testnet-rpc.monad.xyz",
-    ),
+    [monadMainnet.id]: http(defaultMonadRpcUrl()),
   },
-  // Phantom (EVM) + WalletConnect for phone; MetaMask/OKX/Rainbow/injected for desktop.
-  // LUNC stays address-paste — do not route Solana Phantom for Terra Classic.
-  wallets: [
-    {
-      groupName: "Suggested",
-      wallets: [
-        phantomWallet,
-        metaMaskWallet,
-        rainbowWallet,
-        okxWallet,
-        injectedWallet,
-        walletConnectWallet,
-      ],
-    },
-  ],
+  // Injected Phantom / MetaMask / OKX in this browser first; WC QR for phone.
+  // Avoid deep links that OS-route to another installed browser (e.g. Brave).
+  wallets: buildYieldScopeWalletList(),
   ssr: true,
 });
 
@@ -86,7 +66,7 @@ export function Providers({ children }: { children: ReactNode }) {
         <RainbowKitProvider
           theme={rkTheme}
           modalSize="compact"
-          initialChain={monadTestnet}
+          initialChain={monadMainnet}
         >
           {children}
         </RainbowKitProvider>

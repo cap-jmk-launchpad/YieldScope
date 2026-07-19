@@ -9,7 +9,10 @@ import {
 import { NavWalletButton } from "@/components/nav-wallet-button";
 import {
   CHECKPOINT_ADDRESS,
+  DEFAULT_MONAD_CHAIN_ID,
   earningsCheckpointAbi,
+  isCheckpointConfigured,
+  monadExplorerTxUrl,
 } from "@/lib/contracts";
 
 interface Preview {
@@ -44,11 +47,11 @@ export function AttestPanel() {
   function attest() {
     setError(null);
     if (!preview) return;
-    if (
-      !CHECKPOINT_ADDRESS ||
-      CHECKPOINT_ADDRESS === "0x0000000000000000000000000000000000000000"
-    ) {
-      setError("Checkpoint isn’t available yet. Try again later.");
+    // Fail closed: no mainnet EarningsCheckpoint is in-repo yet.
+    if (!isCheckpointConfigured()) {
+      setError(
+        "Onchain attest isn’t available on Monad mainnet yet. Stake sync still works — checkpoint deploy comes later.",
+      );
       return;
     }
     if (!isConnected || !address) {
@@ -79,7 +82,9 @@ export function AttestPanel() {
       <h2>Attest checkpoint</h2>
       <p className="lede">
         Publish a fingerprint of your current earn ledger on Monad so others can
-        verify the total on an explorer.
+        verify the total on an explorer. Wallet connect uses Monad mainnet
+        (chain {DEFAULT_MONAD_CHAIN_ID}); attest stays disabled until a mainnet
+        checkpoint contract is configured.
       </p>
       {preview ? (
         <dl>
@@ -123,7 +128,7 @@ export function AttestPanel() {
         <p className="ok">
           Attested.{" "}
           <a
-            href={`https://testnet.monadscan.com/tx/${hash}`}
+            href={monadExplorerTxUrl(hash, DEFAULT_MONAD_CHAIN_ID)}
             target="_blank"
             rel="noreferrer"
           >

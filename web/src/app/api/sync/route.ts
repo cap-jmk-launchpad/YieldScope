@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
+import { DEFAULT_MONAD_CHAIN_ID } from "@/lib/contracts";
 import {
   loadBinanceCredentials,
   loadLuncAddress,
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
       userId: gate.user.id,
       email: gate.user.email,
       walletAddress: storedWallet,
-      chainId: body.chainId ?? 10143,
+      chainId: body.chainId ?? DEFAULT_MONAD_CHAIN_ID,
       luncAddress: storedLunc,
     },
     range,

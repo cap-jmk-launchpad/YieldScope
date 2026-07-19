@@ -64,7 +64,7 @@ async function main() {
 
   // Monad
   if (live && process.env.MONAD_DEMO_ADDRESS) {
-    const rpc = process.env.MONAD_RPC_URL ?? "https://testnet-rpc.monad.xyz";
+    const rpc = process.env.MONAD_RPC_URL ?? "https://rpc.monad.xyz";
     const client = createPublicClient({ transport: http(rpc) });
     const address = process.env.MONAD_DEMO_ADDRESS as `0x${string}`;
     const validatorIds = process.env.MONAD_VALIDATOR_IDS

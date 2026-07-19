@@ -4,6 +4,7 @@ import type {
   SourceId,
   SourceStatus,
 } from "@/lib/adapters/types";
+import { DEFAULT_MONAD_CHAIN_ID } from "@/lib/contracts";
 import { createAdminClient, isAdminConfigured } from "@/lib/supabase/admin";
 
 export class LedgerPersistError extends Error {
@@ -282,7 +283,7 @@ export async function persistSourceSync(
   }
 
   if (input.walletAddress) {
-    const chainId = input.chainId ?? 10143;
+    const chainId = input.chainId ?? DEFAULT_MONAD_CHAIN_ID;
     const { error: walletErr } = await admin.from("wallet_connections").upsert(
       {
         profile_id: profileId,

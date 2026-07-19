@@ -22,7 +22,7 @@ if [[ -z "$SA" ]]; then
   echo "Missing ANON_KEY in supabase-yieldscope/yieldscope-supabase-secrets" >&2
   exit 1
 fi
-MR="${NEXT_PUBLIC_MONAD_RPC_URL:-https://testnet-rpc.monad.xyz}"
+MR="${NEXT_PUBLIC_MONAD_RPC_URL:-https://rpc.monad.xyz}"
 CP="${NEXT_PUBLIC_CHECKPOINT_ADDRESS:-}"
 # WalletConnect project id is baked into the Next.js bundle (NEXT_PUBLIC_*).
 # Prefer a dedicated id from https://cloud.walletconnect.com — export before deploy:

@@ -18,6 +18,10 @@ import type {
   EarnFetchOptions,
   SourceId,
 } from "./adapters/types";
+import {
+  DEFAULT_MONAD_CHAIN_ID,
+  defaultMonadRpcUrl,
+} from "./contracts";
 import { replaceSourceEvents, getLedger } from "./ledger-store";
 import {
   getSourceHighWaterMs,
@@ -380,7 +384,7 @@ export async function syncMonadStake(
   const walletCtx: SyncContext = {
     ...ctx,
     walletAddress: address ?? null,
-    chainId: ctx.chainId ?? 10143,
+    chainId: ctx.chainId ?? DEFAULT_MONAD_CHAIN_ID,
   };
   try {
     // Wallet required even in fixture mode — demo 2.5 MONAD must not appear
@@ -396,8 +400,7 @@ export async function syncMonadStake(
       const events = await loadFixtureEvents("monad_stake");
       return commitSource(walletCtx, "monad_stake", { status: "ok", events });
     }
-    const rpcUrl =
-      process.env.MONAD_RPC_URL ?? "https://testnet-rpc.monad.xyz";
+    const rpcUrl = defaultMonadRpcUrl(process.env.MONAD_RPC_URL);
     const client = createPublicClient({ transport: http(rpcUrl) });
     const events = await fetchMonadStakeEarnEvents(
       address,

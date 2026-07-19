@@ -1001,7 +1001,7 @@ describe("credentials-db persistence", () => {
     });
     const { saveCredentials: save2, loadCredentialsStatus: load2 } =
       await import("../../web/src/lib/credentials-db");
-    // wallet without chainId → save applies 10143
+    // wallet without chainId → save applies mainnet 143
     await save2({ userId: "u1", walletAddress: WALLET });
     const st = await load2("u1");
     expect(st.binance.keyHint).toBe("•••• saved");

@@ -12,6 +12,7 @@ import { EarningsCharts } from "@/components/earnings-charts";
 import { SortableTh } from "@/components/sortable-th";
 import { TablePager } from "@/components/table-pager";
 import type { EarnEvent, SourceId, SourceStatus } from "@/lib/adapters/types";
+import { DEFAULT_MONAD_CHAIN_ID } from "@/lib/contracts";
 import type { ConvertAmount } from "@/lib/earnings-charts";
 import type { LedgerEventsSort, LedgerSortOrder } from "@/lib/ledger-db";
 import {
@@ -527,7 +528,7 @@ export function Dashboard({
   ): Promise<{ status?: string; error?: string } | null> {
     const body: Record<string, unknown> = {
       source,
-      chainId: chainId ?? 10143,
+      chainId: chainId ?? DEFAULT_MONAD_CHAIN_ID,
       range,
       ...(range.mode === "all" && forceFull ? { forceFull: true } : {}),
     };

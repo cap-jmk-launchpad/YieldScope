@@ -11,7 +11,10 @@ metadata:
   labels:
     app.kubernetes.io/name: yieldscope
 data:
-  NEXT_PUBLIC_MONAD_RPC_URL: "https://testnet-rpc.monad.xyz"
+  # Mainnet RPC for server-side stake reads + baked NEXT_PUBLIC_* at image build.
+  MONAD_RPC_URL: "https://rpc.monad.xyz"
+  NEXT_PUBLIC_MONAD_RPC_URL: "https://rpc.monad.xyz"
+  # Attest stays fail-closed until a mainnet EarningsCheckpoint is deployed.
   NEXT_PUBLIC_CHECKPOINT_ADDRESS: "0x0000000000000000000000000000000000000000"
   # Must stay "0" in prod — fixture mode used to invent 2.5 MONAD earn rows
   # for every user who synced without a connected wallet.
