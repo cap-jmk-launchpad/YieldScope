@@ -8,6 +8,7 @@ import {
   fetchClaimRewardsViaExplorer,
   fetchClaimRewardsViaWideGetLogs,
   fetchMonadClaimedRewards,
+  resolveExplorerConfig,
   padAddressTopic,
   type RpcLog,
 } from "../../web/src/lib/adapters/monad-claim-history";
@@ -190,5 +191,26 @@ describe("Monad ClaimRewards history", () => {
     expect(result.complete).toBe(true);
     expect(result.events).toHaveLength(1);
     expect(result.info).toMatch(/full ClaimRewards/i);
+  });
+  it("resolveExplorerConfig accepts ETHERSCAN_API_KEY as MONAD_EXPLORER alias", () => {
+    const prevM = process.env.MONAD_EXPLORER_API_KEY;
+    const prevE = process.env.ETHERSCAN_API_KEY;
+    try {
+      delete process.env.MONAD_EXPLORER_API_KEY;
+      process.env.ETHERSCAN_API_KEY = "etherscan-alias-key";
+      const cfg = resolveExplorerConfig();
+      expect(cfg).not.toBeNull();
+      expect(cfg?.apiKey).toBe("etherscan-alias-key");
+      expect(cfg?.chainId).toBe(143);
+
+      process.env.MONAD_EXPLORER_API_KEY = "monad-preferred-key";
+      const preferred = resolveExplorerConfig();
+      expect(preferred?.apiKey).toBe("monad-preferred-key");
+    } finally {
+      if (prevM === undefined) delete process.env.MONAD_EXPLORER_API_KEY;
+      else process.env.MONAD_EXPLORER_API_KEY = prevM;
+      if (prevE === undefined) delete process.env.ETHERSCAN_API_KEY;
+      else process.env.ETHERSCAN_API_KEY = prevE;
+    }
   });
 });

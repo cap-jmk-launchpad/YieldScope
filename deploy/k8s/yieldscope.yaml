@@ -20,7 +20,7 @@ data:
   MONAD_CLAIM_LOGS_CHUNK_BLOCKS: "1000"
   MONAD_CLAIM_HISTORY_MAX_BLOCKS: "6480000"
   MONAD_CLAIM_LOGS_CONCURRENCY: "12"
-  # Optional: MONAD_EXPLORER_API_KEY in yieldscope-secrets (free Etherscan V2)
+  # Optional: MONAD_EXPLORER_API_KEY and/or ETHERSCAN_API_KEY in yieldscope-secrets (free Etherscan V2; either name works)
   # as a redundant indexed path. Not required — rpc1 covers full wallet history.
   MONAD_EXPLORER_API_URL: "https://api.etherscan.io/v2/api"
   MONAD_EXPLORER_CHAIN_ID: "143"
