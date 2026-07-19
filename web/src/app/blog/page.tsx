@@ -13,12 +13,21 @@ export const metadata: Metadata = {
     url: "/blog",
     siteName: "YieldScope",
     type: "website",
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: "YieldScope — Solving scattered rewards",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Blog — YieldScope",
     description:
       "Notes on scattered crypto rewards, CeFi earn ledgers, and Monad attestation.",
+    images: ["/twitter-image"],
   },
 };
 
