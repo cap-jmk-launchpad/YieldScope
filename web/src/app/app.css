@@ -1028,10 +1028,124 @@
   min-width: 0;
 }
 
-/* RainbowKit ConnectButton can overflow narrow phones */
-.site-nav-wallet > div,
-.wallet-connect > div {
-  max-width: 100%;
+/* Custom nav wallet — replaces RainbowKit default pill chrome */
+.nav-wallet-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  margin: 0;
+  border-radius: 2px;
+  border: 1px solid color-mix(in oklab, var(--mint) 45%, transparent);
+  background: color-mix(in oklab, var(--mint) 10%, transparent);
+  color: var(--mint);
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nav-wallet-btn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--mint) 18%, transparent);
+  border-color: color-mix(in oklab, var(--mint) 70%, transparent);
+}
+
+.nav-wallet-btn:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.nav-wallet-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.nav-wallet-btn--ghost {
+  border-color: color-mix(in oklab, var(--muted) 35%, transparent);
+  background: transparent;
+  color: var(--muted);
+}
+
+.nav-wallet-btn--connected {
+  border-color: color-mix(in oklab, var(--muted) 40%, transparent);
+  background: color-mix(in oklab, var(--ink-elevated) 88%, var(--paper));
+  color: var(--paper);
+  max-width: 11.5rem;
+  padding-inline: 0.65rem;
+}
+
+.nav-wallet-btn--connected:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--mint) 50%, transparent);
+  background: color-mix(in oklab, var(--ink-elevated) 75%, var(--mint));
+  color: var(--paper);
+}
+
+.nav-wallet-btn--warn {
+  border-color: color-mix(in oklab, var(--warn) 55%, transparent);
+  background: color-mix(in oklab, var(--warn) 12%, transparent);
+  color: var(--warn);
+}
+
+.nav-wallet-btn--panel {
+  height: 2.35rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+}
+
+.nav-wallet-btn__dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--mint);
+  flex-shrink: 0;
+}
+
+.nav-wallet-btn__addr {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.nav-wallet-btn__short {
+  display: none;
+}
+
+.nav-wallet-btn__full {
+  display: inline;
+}
+
+@media (max-width: 720px) {
+  .nav-wallet-btn__full {
+    display: none;
+  }
+
+  .nav-wallet-btn__short {
+    display: inline;
+  }
+
+  .nav-wallet-btn--connected {
+    max-width: 8.5rem;
+  }
+
+  .nav-wallet-btn--panel .nav-wallet-btn__full {
+    display: inline;
+  }
+
+  .nav-wallet-btn--panel .nav-wallet-btn__short {
+    display: none;
+  }
 }
 
 @media (max-width: 720px) {

@@ -1,8 +1,8 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import { useEffect, useState, type FormEvent } from "react";
+import { NavWalletButton } from "@/components/nav-wallet-button";
 
 interface CredentialStatus {
   configured: boolean;
@@ -263,18 +263,7 @@ export function ConnectPanel() {
           from desktop. Enable Monad Testnet in Phantom settings if prompted.
         </p>
         <div className="wallet-connect">
-          <ConnectButton
-            chainStatus={{
-              smallScreen: "none",
-              largeScreen: "icon",
-            }}
-            accountStatus={{
-              smallScreen: "avatar",
-              largeScreen: "address",
-            }}
-            showBalance={false}
-            label="Connect wallet"
-          />
+          <NavWalletButton variant="panel" />
         </div>
         {isConnected && address ? (
           <p className="wallet">

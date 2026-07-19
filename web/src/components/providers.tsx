@@ -71,7 +71,7 @@ const config = getDefaultConfig({
 });
 
 const rkTheme = darkTheme({
-  accentColor: "#3dffa8",
+  accentColor: "#00efff",
   accentColorForeground: "#05080f",
   borderRadius: "small",
   fontStack: "system",

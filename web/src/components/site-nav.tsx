@@ -1,9 +1,9 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { NavWalletButton } from "@/components/nav-wallet-button";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 export function SiteNav() {
@@ -40,18 +40,7 @@ export function SiteNav() {
         <Link href="/app/connect">Connect</Link>
         <Link href="/app/attest">Attest</Link>
         <div className="site-nav-wallet">
-          <ConnectButton
-            chainStatus={{
-              smallScreen: "none",
-              largeScreen: "icon",
-            }}
-            accountStatus={{
-              smallScreen: "avatar",
-              largeScreen: "address",
-            }}
-            showBalance={false}
-            label="Connect wallet"
-          />
+          <NavWalletButton />
         </div>
         {email ? (
           <button type="button" className="site-nav-signout" onClick={() => void signOut()}>

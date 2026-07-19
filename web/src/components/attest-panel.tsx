@@ -1,12 +1,12 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useEffect, useState } from "react";
 import {
   useAccount,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from "wagmi";
+import { NavWalletButton } from "@/components/nav-wallet-button";
 import {
   CHECKPOINT_ADDRESS,
   earningsCheckpointAbi,
@@ -101,18 +101,7 @@ export function AttestPanel() {
       )}
       {!isConnected ? (
         <div className="wallet-connect">
-          <ConnectButton
-            label="Connect wallet"
-            showBalance={false}
-            chainStatus={{
-              smallScreen: "none",
-              largeScreen: "icon",
-            }}
-            accountStatus={{
-              smallScreen: "avatar",
-              largeScreen: "address",
-            }}
-          />
+          <NavWalletButton variant="panel" />
         </div>
       ) : null}
       <div className="actions">
