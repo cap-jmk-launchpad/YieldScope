@@ -74,6 +74,7 @@ export default function HomePage() {
           <a href="#problem">Problem</a>
           <a href="#how">How</a>
           <a href="#sources">Sources</a>
+          <Link href="/docs">Docs</Link>
           <Link href="/blog">Blog</Link>
           <Link href="/register" className="landing-top-cta">
             Register
@@ -180,6 +181,15 @@ export default function HomePage() {
             More chains later, after Phase 1 is green. Marketing may say
             “rewards”; the product stays earn-accurate.
           </p>
+          <p className="landing-request-cta">
+            <Link href="/app/connect#request-chain" className="landing-request-link">
+              Request a chain
+            </Link>
+            <span>
+              — tell us which network or earn source you want next (sign in
+              required).
+            </span>
+          </p>
         </div>
       </section>
 
@@ -270,7 +280,10 @@ export default function HomePage() {
       <footer className="landing-foot">
         <span>yieldscope.d3bu7.com</span>
         <nav className="landing-foot-nav" aria-label="Footer">
+          <Link href="/docs">Docs</Link>
+          <Link href="/docs/connect">Connect guide</Link>
           <Link href="/blog">Blog</Link>
+          <Link href="/app/connect#request-chain">Request a chain</Link>
           <Link href="/login">Sign in</Link>
           <Link href="/register">Register</Link>
         </nav>

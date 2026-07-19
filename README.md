@@ -6,6 +6,14 @@ Personal earn ledger for **Binance Simple Earn**, **OKX savings**, and **Monad s
 
 Host target: `yieldscope.d3bu7.com` · Brand: see `PRODUCT.md`, `brand.md`, `design.md`, `docs/pitch.md`
 
+## Docs (connect wallets & exchanges)
+
+**In-app (branded):** [https://yieldscope.d3bu7.com/docs](https://yieldscope.d3bu7.com/docs) · [Connect guide](https://yieldscope.d3bu7.com/docs/connect)
+
+**Repo:** [`docs/guides/connect-wallets-and-exchanges.md`](docs/guides/connect-wallets-and-exchanges.md) · short pointer [`docs/connect.md`](docs/connect.md)
+
+Step-by-step for Binance / OKX read-only API keys, Phantom on Monad mainnet, Terra Classic addresses, sync modes, and fail-closed status.
+
 ## Phase 1 sources only
 
 | Source | Adapter | Tests |
@@ -158,4 +166,6 @@ tests/unit/          Vitest adapter tests
 supabase/migrations/ Ledger schema
 deploy/k8s/          Ingress for yieldscope.d3bu7.com
 docs/pitch.md        Competitors + 30s pitch
+docs/guides/         User guides (connect wallets & exchanges)
+docs/connect.md      Short pointer to the connect guide
 ```

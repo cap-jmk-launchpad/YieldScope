@@ -937,6 +937,10 @@
   line-height: 1.5;
 }
 
+.connect-panel .lede a {
+  color: var(--accent);
+}
+
 .connect-panel .connection-overview {
   display: flex;
   flex-direction: column;
@@ -1127,6 +1131,145 @@
   color: var(--mint);
   cursor: pointer;
   text-decoration: underline;
+}
+
+.connect-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  padding-bottom: 3rem;
+}
+
+.request-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 40rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in oklab, var(--muted) 25%, transparent);
+}
+
+.request-chain h2 {
+  font-family: var(--font-display);
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.request-chain h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--paper);
+}
+
+.request-chain .lede {
+  color: var(--muted);
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.request-chain label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.request-chain .optional {
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.request-chain input,
+.request-chain textarea {
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--paper);
+  background: var(--ink-elevated);
+  border: 1px solid color-mix(in oklab, var(--muted) 35%, transparent);
+  padding: 0.55rem 0.7rem;
+  border-radius: 2px;
+}
+
+.request-chain textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+}
+
+.request-chain input:focus,
+.request-chain textarea:focus {
+  outline: 1px solid color-mix(in oklab, var(--mint) 55%, transparent);
+  border-color: color-mix(in oklab, var(--mint) 45%, transparent);
+}
+
+.request-chain .btn-primary {
+  align-self: flex-start;
+  margin-top: 0.25rem;
+}
+
+.request-chain .ok {
+  color: var(--mint);
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.request-chain .err {
+  color: var(--coral, #e07a5f);
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.request-chain .err a {
+  color: var(--mint);
+}
+
+.request-chain-prior {
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in oklab, var(--muted) 18%, transparent);
+}
+
+.request-chain-prior ul {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.request-chain-prior li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: var(--paper);
+}
+
+.request-chain-prior time {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.request-chain-dash-cta {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.request-chain-dash-cta a {
+  color: var(--mint);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--mint) 45%, transparent);
+}
+
+.request-chain-dash-cta a:hover {
+  border-bottom-color: var(--mint);
 }
 
 .attest-panel {

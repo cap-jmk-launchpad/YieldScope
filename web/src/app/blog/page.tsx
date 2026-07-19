@@ -42,6 +42,7 @@ export default function BlogIndexPage() {
         </Link>
         <nav className="blog-top-nav">
           <Link href="/">Home</Link>
+          <Link href="/docs">Docs</Link>
           <Link href="/register">Get started</Link>
         </nav>
       </header>

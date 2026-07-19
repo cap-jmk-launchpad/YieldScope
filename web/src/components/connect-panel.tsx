@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useAccount } from "wagmi";
 import { useEffect, useState, type FormEvent } from "react";
 import { BrandIcon } from "@/components/brand-icon";
@@ -191,7 +192,8 @@ export function ConnectPanel() {
         Paste <strong>read-only</strong> API keys for exchanges, connect a Monad
         wallet, and paste a Terra Classic (LUNC) address. Keys and addresses are
         stored for your account — secrets stay masked after save. Connecting
-        Phantom auto-saves the Monad address.
+        Phantom auto-saves the Monad address. Step-by-step:{" "}
+        <Link href="/docs/connect">Connect wallets and exchanges</Link>.
       </p>
 
       <div className="connection-overview" aria-label="Connection status">

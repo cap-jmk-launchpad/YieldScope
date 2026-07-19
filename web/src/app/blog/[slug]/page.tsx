@@ -54,6 +54,7 @@ export default async function BlogPostPage({ params }: Props) {
         </Link>
         <nav className="blog-top-nav">
           <Link href="/blog">Blog</Link>
+          <Link href="/docs">Docs</Link>
           <Link href="/register">Get started</Link>
         </nav>
       </header>

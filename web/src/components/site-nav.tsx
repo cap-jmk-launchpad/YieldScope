@@ -39,6 +39,7 @@ export function SiteNav() {
         <Link href="/app">Dashboard</Link>
         <Link href="/app/connect">Connect</Link>
         <Link href="/app/attest">Attest</Link>
+        <Link href="/docs">Docs</Link>
         <div className="site-nav-wallet">
           <NavWalletButton />
         </div>
