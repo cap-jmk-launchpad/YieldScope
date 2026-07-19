@@ -57,7 +57,7 @@ Supabase redirect URLs (Auth → URL Configuration):
 
 - **Account:** Supabase email/password at `/login`, `/register`, and `/forgot-password` → `/auth/reset-password`. Registration requires email confirmation (Supabase Dashboard → Auth → confirm email) — that link is the only bot gate (no captcha). Password reset emails verify on the API host then redirect to `/auth/reset-password` (`?code=` or `#access_token=`).
 - **CEX:** Connect UI is **read-only API keys** for Binance and OKX (sessionStorage). Server sync also accepts env vars for smoke (`BINANCE_*`, `OKX_*`).
-- **Wallet:** RainbowKit + wagmi on Monad **mainnet** (chain `143`) for stake reads. Connectors prefer **this browser** (Phantom / injected / MetaMask / OKX) before WalletConnect QR for phone — avoids `phantom://` handoff to another installed browser (e.g. Brave). Attest stays disabled until `NEXT_PUBLIC_CHECKPOINT_ADDRESS` points at a mainnet contract. LUNC remains Terra address paste — not Solana Phantom.
+- **Wallet:** RainbowKit + wagmi on Monad **mainnet** (chain `143`) for stake reads. Connect modal shows **Phantom only** (injected in the current browser) — no MetaMask / OKX / WalletConnect list clutter; avoids `phantom://` handoff to another installed browser (e.g. Brave). Attest stays disabled until `NEXT_PUBLIC_CHECKPOINT_ADDRESS` points at a mainnet contract. LUNC remains Terra address paste — not Solana Phantom.
 - **Fail closed:** `/app/*` requires a session; `/api/sync` and `/api/checkpoint/*` return 401 when unauthenticated. Broken adapters never invent earn rows.
 
 ## Live smoke (before demo recording)
