@@ -203,6 +203,12 @@ export interface MonadStakeScanResult {
   claimHistoryOk: boolean;
   /** Which history backend produced claimedEvents. */
   claimHistorySource: "explorer" | "archive_rpc" | "none";
+  /**
+   * True when claimed history covers the requested window (full chain or sync
+   * bounds). Complete archive_rpc (rpc1 wide getLogs) may use the normal
+   * persist plan; incomplete chunk walks stay upsert-only.
+   */
+  claimHistoryComplete: boolean;
 }
 
 export interface ScanMonadStakeOpts {
@@ -285,6 +291,7 @@ export async function scanMonadStake(
   let claimedEvents: EarnEvent[] = [];
   let claimHistoryOk = false;
   let claimHistorySource: "explorer" | "archive_rpc" | "none" = "none";
+  let claimHistoryComplete = false;
   let claimInfo: string | undefined;
 
   if (!opts?.skipClaimHistory) {
@@ -298,6 +305,7 @@ export async function scanMonadStake(
     claimedEvents = history.events;
     claimHistorySource = history.source;
     claimHistoryOk = history.source !== "none";
+    claimHistoryComplete = history.complete === true;
     claimInfo = history.info;
   }
 
@@ -317,6 +325,7 @@ export async function scanMonadStake(
     pendingEvents,
     claimHistoryOk,
     claimHistorySource,
+    claimHistoryComplete,
   };
 }
 

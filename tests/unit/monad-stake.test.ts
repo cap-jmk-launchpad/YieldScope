@@ -426,10 +426,12 @@ describe("Monad staking reader", () => {
       fetchClaimed: async () => ({
         events: claimed,
         source: "explorer" as const,
+        complete: true,
       }),
     });
     expect(scan.claimHistoryOk).toBe(true);
     expect(scan.claimHistorySource).toBe("explorer");
+    expect(scan.claimHistoryComplete).toBe(true);
     expect(scan.claimedEvents).toHaveLength(1);
     expect(scan.pendingEvents).toHaveLength(1);
     expect(scan.events).toHaveLength(2);
@@ -450,11 +452,13 @@ describe("Monad staking reader", () => {
       fetchClaimed: async () => ({
         events: [],
         source: "none" as const,
+        complete: false,
         info: "Claimed reward history unavailable.",
       }),
     });
     expect(soft.claimHistoryOk).toBe(false);
     expect(soft.claimHistorySource).toBe("none");
+    expect(soft.claimHistoryComplete).toBe(false);
     expect(soft.events).toHaveLength(1);
     expect(soft.info).toMatch(/history unavailable/i);
   });

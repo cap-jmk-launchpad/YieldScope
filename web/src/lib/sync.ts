@@ -423,9 +423,9 @@ export async function syncMonadStake(
     });
 
     // Soft-degrade / partial archive: never full-replace (would wipe older claims).
-    // Full replace only when explorer returned a complete indexed history.
+    // Full persist plan when explorer OR complete public-RPC history (rpc1 wide).
     const persistPlan =
-      scan.claimHistorySource === "explorer"
+      scan.claimHistorySource === "explorer" || scan.claimHistoryComplete
         ? plan
         : {
             persistMode: "upsert" as const,

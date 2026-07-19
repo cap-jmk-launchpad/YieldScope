@@ -17,30 +17,38 @@ const MONAD_STAKING_PRECOMPILE =
 /**
  * ClaimRewards(uint64 indexed validatorId, address indexed delegator, uint256 amount, uint64 epoch)
  * keccak256 of the canonical signature — verified against mainnet logs.
+ * Emitted by claimRewards() and compound() (compound reuses the same event).
  */
 export const CLAIM_REWARDS_TOPIC0 =
   "0xcb607e6b63c89c95f6ae24ece9fe0e38a7971aa5ed956254f1df47490921727b" as const;
 
-/** Ankr public Monad RPC — eth_getLogs up to 1000 blocks (vs ~100 on rpc.monad.xyz). */
-export const DEFAULT_MONAD_ARCHIVE_RPC_URL = "https://rpc3.monad.xyz";
+/**
+ * Public Monad RPC that accepts wide eth_getLogs when topic2 (delegator) is set.
+ * Verified: fromBlock 0 → latest with ClaimRewards + wallet topic returns in <1s.
+ * Do NOT use rpc.monad.xyz here (~100-block getLogs cap).
+ */
+export const DEFAULT_MONAD_ARCHIVE_RPC_URL = "https://rpc1.monad.xyz";
+
+/** Narrower public RPC used only if the primary rejects wide getLogs. */
+export const FALLBACK_MONAD_ARCHIVE_RPC_URL = "https://rpc3.monad.xyz";
 
 /** Etherscan API V2 multichain base (Monad chainid 143 is free-tier). */
 export const DEFAULT_MONAD_EXPLORER_API_URL = "https://api.etherscan.io/v2/api";
 
 export const DEFAULT_MONAD_EXPLORER_CHAIN_ID = 143;
 
-/** Default chunk size for archive eth_getLogs (Ankr / Alchemy paid). */
+/** Chunk size for narrow RPCs that reject wide ranges (rpc3 ≈ 1000). */
 export const DEFAULT_CLAIM_LOGS_CHUNK_BLOCKS = 1000;
 
 /**
- * Safety cap for RPC chunk walks without an explorer key.
- * ~500k blocks ≈ 2.3 days at 400ms — enough for incremental catch-up;
- * full multi-month history needs MONAD_EXPLORER_API_KEY (free Etherscan).
+ * Safety cap for chunked walks when single-shot wide getLogs is unavailable.
+ * ~6.5M blocks ≈ 30 days at 400ms — incremental catch-up; prefer rpc1 single-shot
+ * for full history (no key, no self-hosted node).
  */
-export const DEFAULT_CLAIM_HISTORY_MAX_BLOCKS = 500_000;
+export const DEFAULT_CLAIM_HISTORY_MAX_BLOCKS = 6_480_000;
 
-/** Parallel archive getLogs workers. */
-export const DEFAULT_CLAIM_LOGS_CONCURRENCY = 8;
+/** Parallel archive getLogs workers (chunked fallback). */
+export const DEFAULT_CLAIM_LOGS_CONCURRENCY = 12;
 
 /** Monad mainnet block time for ms → block estimates. */
 export const MONAD_BLOCK_TIME_MS = 400;
@@ -52,6 +60,11 @@ export interface ClaimHistoryResult {
   source: ClaimHistorySource;
   /** Soft note when history is partial / unavailable (never an error). */
   info?: string;
+  /**
+   * True when claimed history covers the requested window (genesis→now or
+   * startMs→now). Explorer + rpc1 single-shot → true; capped chunk walk → false.
+   */
+  complete?: boolean;
 }
 
 export interface RpcLog {
@@ -157,7 +170,7 @@ export function claimRewardsLogsToEarnEvents(
       if (endMs != null && ms > endMs) continue;
       earnedAt = new Date(ms).toISOString();
     } else {
-      // Explorer rows sometimes omit timestamp — keep the row; sync window
+      // Explorer / some RPCs omit timestamp — keep the row; sync window
       // filter may drop it later if bounds are strict.
       earnedAt = new Date(0).toISOString();
     }
@@ -273,43 +286,30 @@ async function mapPool<T, R>(
   return out;
 }
 
-/**
- * Chunked eth_getLogs for ClaimRewards filtered by delegator (topic2).
- * Works on Ankr/Alchemy-style archive RPCs with 1k-block windows.
- */
-export async function fetchClaimRewardsViaArchiveRpc(
-  delegator: Address,
+export async function resolveClaimLogBlockRange(
   rpc: JsonRpcTransport,
   opts?: {
     fromBlock?: bigint;
     toBlock?: bigint;
-    chunkBlocks?: number;
     maxBlocks?: number;
-    concurrency?: number;
     startMs?: number | null;
-    endMs?: number | null;
+    /** When true, do not clamp to maxBlocks (single-shot full history). */
+    uncapped?: boolean;
   },
-): Promise<EarnEvent[]> {
+): Promise<{ fromBlock: bigint; toBlock: bigint; capped: boolean }> {
   const latestHex = (await rpc("eth_blockNumber", [])) as Hex;
   const latest = hexToBigInt(latestHex);
-  const chunk = BigInt(
-    opts?.chunkBlocks ??
-      envInt("MONAD_CLAIM_LOGS_CHUNK_BLOCKS", DEFAULT_CLAIM_LOGS_CHUNK_BLOCKS),
-  );
   const maxBlocks = BigInt(
     opts?.maxBlocks ??
       envInt("MONAD_CLAIM_HISTORY_MAX_BLOCKS", DEFAULT_CLAIM_HISTORY_MAX_BLOCKS),
   );
-  const concurrency =
-    opts?.concurrency ??
-    envInt("MONAD_CLAIM_LOGS_CONCURRENCY", DEFAULT_CLAIM_LOGS_CONCURRENCY);
 
   let toBlock = opts?.toBlock ?? latest;
   if (toBlock > latest) toBlock = latest;
 
   let fromBlock = opts?.fromBlock;
+  let capped = false;
   if (fromBlock == null) {
-    // Estimate from time window when provided.
     if (opts?.startMs != null && Number.isFinite(opts.startMs)) {
       const latestBlock = (await rpc("eth_getBlockByNumber", [
         toHex(toBlock),
@@ -323,42 +323,167 @@ export async function fetchClaimRewardsViaArchiveRpc(
         Math.ceil(deltaMs / MONAD_BLOCK_TIME_MS) + 100,
       );
       fromBlock = toBlock > blocksBack ? toBlock - blocksBack : 0n;
+    } else if (opts?.uncapped) {
+      fromBlock = 0n;
     } else {
       fromBlock = toBlock > maxBlocks ? toBlock - maxBlocks : 0n;
+      if (toBlock - fromBlock >= maxBlocks && fromBlock > 0n) capped = true;
     }
   }
-  if (toBlock - fromBlock > maxBlocks) {
+  if (!opts?.uncapped && toBlock - fromBlock > maxBlocks) {
     fromBlock = toBlock - maxBlocks;
+    capped = true;
   }
   if (fromBlock < 0n) fromBlock = 0n;
-  if (fromBlock > toBlock) return [];
+  return { fromBlock, toBlock, capped };
+}
+
+/**
+ * Single eth_getLogs for ClaimRewards filtered by delegator (topic2).
+ * Works end-to-end on rpc1.monad.xyz for the full chain; fails on narrow RPCs.
+ */
+export async function fetchClaimRewardsViaWideGetLogs(
+  delegator: Address,
+  rpc: JsonRpcTransport,
+  opts?: {
+    fromBlock?: bigint;
+    toBlock?: bigint;
+    startMs?: number | null;
+    endMs?: number | null;
+  },
+): Promise<{ events: EarnEvent[]; fromBlock: bigint; toBlock: bigint }> {
+  const range = await resolveClaimLogBlockRange(rpc, {
+    fromBlock: opts?.fromBlock,
+    toBlock: opts?.toBlock,
+    startMs: opts?.startMs,
+    uncapped: opts?.fromBlock == null && opts?.startMs == null,
+  });
+  if (range.fromBlock > range.toBlock) {
+    return { events: [], fromBlock: range.fromBlock, toBlock: range.toBlock };
+  }
+
+  const topic2 = padAddressTopic(delegator);
+  const result = (await rpc("eth_getLogs", [
+    {
+      fromBlock: toHex(range.fromBlock),
+      toBlock: toHex(range.toBlock),
+      address: MONAD_STAKING_PRECOMPILE,
+      topics: [CLAIM_REWARDS_TOPIC0, null, topic2],
+    },
+  ])) as RpcLog[] | null;
+
+  const logs = Array.isArray(result) ? result : [];
+  return {
+    events: claimRewardsLogsToEarnEvents(delegator, logs, {
+      startMs: opts?.startMs,
+      endMs: opts?.endMs,
+    }),
+    fromBlock: range.fromBlock,
+    toBlock: range.toBlock,
+  };
+}
+
+/**
+ * Chunked eth_getLogs for ClaimRewards filtered by delegator (topic2).
+ * Fallback for RPCs that reject wide ranges (e.g. rpc3 ≈ 1000-block windows).
+ */
+export async function fetchClaimRewardsViaArchiveRpc(
+  delegator: Address,
+  rpc: JsonRpcTransport,
+  opts?: {
+    fromBlock?: bigint;
+    toBlock?: bigint;
+    chunkBlocks?: number;
+    maxBlocks?: number;
+    concurrency?: number;
+    startMs?: number | null;
+    endMs?: number | null;
+    /** Prefer single wide getLogs before chunking (default true). */
+    preferWide?: boolean;
+  },
+): Promise<{ events: EarnEvent[]; mode: "wide" | "chunked"; complete: boolean }> {
+  const preferWide = opts?.preferWide !== false;
+
+  if (preferWide) {
+    try {
+      const wide = await fetchClaimRewardsViaWideGetLogs(delegator, rpc, {
+        fromBlock: opts?.fromBlock,
+        toBlock: opts?.toBlock,
+        startMs: opts?.startMs,
+        endMs: opts?.endMs,
+      });
+      const complete =
+        opts?.fromBlock != null ||
+        opts?.startMs != null ||
+        wide.fromBlock === 0n;
+      return { events: wide.events, mode: "wide", complete };
+    } catch {
+      /* fall through to chunked */
+    }
+  }
+
+  const range = await resolveClaimLogBlockRange(rpc, {
+    fromBlock: opts?.fromBlock,
+    toBlock: opts?.toBlock,
+    maxBlocks: opts?.maxBlocks,
+    startMs: opts?.startMs,
+    uncapped: false,
+  });
+  if (range.fromBlock > range.toBlock) {
+    return { events: [], mode: "chunked", complete: !range.capped };
+  }
+
+  const chunk = BigInt(
+    opts?.chunkBlocks ??
+      envInt("MONAD_CLAIM_LOGS_CHUNK_BLOCKS", DEFAULT_CLAIM_LOGS_CHUNK_BLOCKS),
+  );
+  const concurrency =
+    opts?.concurrency ??
+    envInt("MONAD_CLAIM_LOGS_CONCURRENCY", DEFAULT_CLAIM_LOGS_CONCURRENCY);
 
   const topic2 = padAddressTopic(delegator);
   const ranges: Array<{ from: bigint; to: bigint }> = [];
-  for (let start = fromBlock; start <= toBlock; start += chunk) {
-    const end = start + chunk - 1n > toBlock ? toBlock : start + chunk - 1n;
+  for (let start = range.fromBlock; start <= range.toBlock; start += chunk) {
+    const end =
+      start + chunk - 1n > range.toBlock ? range.toBlock : start + chunk - 1n;
     ranges.push({ from: start, to: end });
   }
 
-  const pages = await mapPool(ranges, concurrency, async (range) => {
-    const result = (await rpc("eth_getLogs", [
-      {
-        fromBlock: toHex(range.from),
-        toBlock: toHex(range.to),
-        address: MONAD_STAKING_PRECOMPILE,
-        topics: [CLAIM_REWARDS_TOPIC0, null, topic2],
-      },
-    ])) as RpcLog[] | null;
-    return Array.isArray(result) ? result : [];
+  let hardFailures = 0;
+  const pages = await mapPool(ranges, concurrency, async (r) => {
+    try {
+      const result = (await rpc("eth_getLogs", [
+        {
+          fromBlock: toHex(r.from),
+          toBlock: toHex(r.to),
+          address: MONAD_STAKING_PRECOMPILE,
+          topics: [CLAIM_REWARDS_TOPIC0, null, topic2],
+        },
+      ])) as RpcLog[] | null;
+      return Array.isArray(result) ? result : [];
+    } catch {
+      hardFailures += 1;
+      return [] as RpcLog[];
+    }
   });
+
+  if (hardFailures === ranges.length && ranges.length > 0) {
+    throw new MonadClaimHistoryError(
+      "All chunked eth_getLogs requests failed",
+    );
+  }
 
   const logs = pages.flat().sort((a, b) =>
     logSortKey(a).localeCompare(logSortKey(b)),
   );
-  return claimRewardsLogsToEarnEvents(delegator, logs, {
-    startMs: opts?.startMs,
-    endMs: opts?.endMs,
-  });
+  return {
+    events: claimRewardsLogsToEarnEvents(delegator, logs, {
+      startMs: opts?.startMs,
+      endMs: opts?.endMs,
+    }),
+    mode: "chunked",
+    complete: !range.capped && hardFailures === 0,
+  };
 }
 
 /**
@@ -439,9 +564,33 @@ export async function fetchClaimRewardsViaExplorer(
   });
 }
 
+async function tryArchiveClaimHistory(
+  delegator: Address,
+  rpcUrl: string,
+  opts: {
+    startMs?: number | null;
+    endMs?: number | null;
+    fetchImpl?: typeof fetch;
+    jsonRpc?: JsonRpcTransport;
+  },
+): Promise<{
+  events: EarnEvent[];
+  mode: "wide" | "chunked";
+  complete: boolean;
+}> {
+  const rpc =
+    opts.jsonRpc ??
+    createHttpJsonRpc(rpcUrl, opts.fetchImpl ?? fetch);
+  return fetchClaimRewardsViaArchiveRpc(delegator, rpc, {
+    startMs: opts.startMs,
+    endMs: opts.endMs,
+  });
+}
+
 /**
- * Best-effort claimed reward history.
- * Prefer explorer (full history) → archive RPC chunks → empty + soft note.
+ * Best-effort claimed reward history (no self-hosted archive node required).
+ * Prefer explorer (if key) → public rpc1 wide getLogs (full chain) →
+ * chunked fallback → empty + soft note.
  * Never throws for transport failures (soft-degrade); decode bugs still throw.
  */
 export async function fetchMonadClaimedRewards(
@@ -480,7 +629,7 @@ export async function fetchMonadClaimedRewards(
         endMs,
         fetchImpl,
       });
-      return { events, source: "explorer" };
+      return { events, source: "explorer", complete: true };
     } catch (err) {
       notes.push(
         err instanceof Error
@@ -490,33 +639,64 @@ export async function fetchMonadClaimedRewards(
     }
   }
 
-  try {
-    const rpc =
-      opts?.jsonRpc ??
-      createHttpJsonRpc(resolveArchiveRpcUrl(opts?.archiveRpcUrl), fetchImpl);
-    const events = await fetchClaimRewardsViaArchiveRpc(delegator, rpc, {
-      startMs,
-      endMs,
-    });
-    const cap = envInt(
-      "MONAD_CLAIM_HISTORY_MAX_BLOCKS",
-      DEFAULT_CLAIM_HISTORY_MAX_BLOCKS,
-    );
-    const info = [
-      ...notes,
-      `Claimed history from archive RPC (last ~${cap.toLocaleString()} blocks). Set MONAD_EXPLORER_API_KEY for full Monadscan-indexed history.`,
-    ].join(" ");
-    return { events, source: "archive_rpc", info };
-  } catch (err) {
-    const detail =
-      err instanceof Error ? err.message : "archive RPC failed";
-    return {
-      events: [],
-      source: "none",
-      info: [
-        ...notes,
-        `Claimed reward history unavailable (${detail}). Showing pending unclaimed only.`,
-      ].join(" "),
-    };
+  const primaryUrl = resolveArchiveRpcUrl(opts?.archiveRpcUrl);
+  const candidates = [primaryUrl];
+  if (
+    !opts?.jsonRpc &&
+    primaryUrl !== FALLBACK_MONAD_ARCHIVE_RPC_URL &&
+    !opts?.archiveRpcUrl
+  ) {
+    candidates.push(FALLBACK_MONAD_ARCHIVE_RPC_URL);
   }
+
+  let lastErr: unknown;
+  for (const url of candidates) {
+    try {
+      const archive = await tryArchiveClaimHistory(delegator, url, {
+        startMs,
+        endMs,
+        fetchImpl,
+        jsonRpc: opts?.jsonRpc,
+      });
+      const infoParts = [...notes];
+      if (archive.mode === "wide" && archive.complete) {
+        infoParts.push(
+          "Claimed history from public Monad RPC (full ClaimRewards for this wallet).",
+        );
+      } else if (archive.mode === "wide") {
+        infoParts.push(
+          "Claimed history from public Monad RPC for the sync window.",
+        );
+      } else {
+        const cap = envInt(
+          "MONAD_CLAIM_HISTORY_MAX_BLOCKS",
+          DEFAULT_CLAIM_HISTORY_MAX_BLOCKS,
+        );
+        infoParts.push(
+          `Claimed history from chunked archive RPC (last ~${cap.toLocaleString()} blocks). Optional: set MONAD_EXPLORER_API_KEY for Monadscan-indexed history.`,
+        );
+      }
+      return {
+        events: archive.events,
+        source: "archive_rpc",
+        complete: archive.complete,
+        info: infoParts.filter(Boolean).join(" ") || undefined,
+      };
+    } catch (err) {
+      lastErr = err;
+      if (opts?.jsonRpc) break; // injected transport — don't retry fallback URL
+    }
+  }
+
+  const detail =
+    lastErr instanceof Error ? lastErr.message : "archive RPC failed";
+  return {
+    events: [],
+    source: "none",
+    complete: false,
+    info: [
+      ...notes,
+      `Claimed reward history unavailable (${detail}). Showing pending unclaimed only.`,
+    ].join(" "),
+  };
 }

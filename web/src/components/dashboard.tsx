@@ -1013,8 +1013,8 @@ export function Dashboard({
           Auto-import runs once when you open the dashboard if you already have
           history. Re-download full history replaces CEX/LUNC/Monad claim streams.
           Monad also refreshes unclaimed rewards from validators you’re delegated
-          to. Claimed `ClaimRewards` come from explorer/archive when available
-          (soft-degrades to pending-only if those APIs fail). Holding MON is not
+          to. Claimed `ClaimRewards` come from public Monad RPC (wallet-filtered
+          logs; soft-degrades to pending-only if history fails). Holding MON is not
           staking: delegate first. LUNC pending is a point-in-time snapshot and
           may replace prior pending rows.
           {selectedWindowLabel

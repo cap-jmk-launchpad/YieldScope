@@ -345,8 +345,8 @@ export function ConnectPanel() {
               no <code>phantom://</code> handoff. On phone: open this site in
               Phantom&apos;s in-app browser. The address is saved automatically
               when you connect. Use Monad (not Monad Testnet) if prompted. Sync
-              reads <strong>claimed ClaimRewards</strong> (explorer/archive when
-              available) plus{" "}
+              reads <strong>claimed ClaimRewards</strong> (public Monad RPC /
+              optional explorer) plus{" "}
               <strong>
                 unclaimed rewards from validators you’re delegated to
               </strong>{" "}
