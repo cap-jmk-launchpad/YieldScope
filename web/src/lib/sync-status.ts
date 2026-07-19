@@ -109,3 +109,49 @@ export function isSyncSessionFresh(session: SyncSession, now = Date.now()): bool
   if (!Number.isFinite(started)) return false;
   return now - started < SYNC_SESSION_STALE_MS;
 }
+
+/** True when any source already has persisted earn history (repeat visit). */
+export function ledgerHasSyncedHistory(
+  sources:
+    | Record<
+        string,
+        { eventCount?: number; lastSyncedAt?: string; status?: SourceStatus }
+      >
+    | null
+    | undefined,
+): boolean {
+  if (!sources) return false;
+  for (const row of Object.values(sources)) {
+    if (!row) continue;
+    if ((row.eventCount ?? 0) > 0) return true;
+    if (row.lastSyncedAt) return true;
+    if (row.status === "ok") return true;
+  }
+  return false;
+}
+
+export type AutoImportGate = {
+  /** User selected incremental / “import missing” mode (`all` + not force-full). */
+  rangeMode: "all" | "custom" | null;
+  forceFull: boolean;
+  /** Explicit opt-in stored with sync prefs (default true). */
+  autoImportMissing: boolean;
+  /** Ledger already has history — never auto full-backfill on a cold account. */
+  hasSyncedHistory: boolean;
+  /** Prefs + first ledger fetch finished. */
+  ready: boolean;
+  /** Manual sync, mid-flight recovery, or prior auto already started this mount. */
+  blocked: boolean;
+};
+
+/**
+ * Gate for quiet dashboard auto-import of rows newer than each source’s
+ * high-water mark. Never triggers for custom ranges or force-full redownloads.
+ */
+export function shouldAutoImportMissing(gate: AutoImportGate): boolean {
+  if (!gate.ready || gate.blocked) return false;
+  if (gate.rangeMode !== "all") return false;
+  if (gate.forceFull) return false;
+  if (!gate.autoImportMissing) return false;
+  return gate.hasSyncedHistory;
+}

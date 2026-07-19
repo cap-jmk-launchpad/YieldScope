@@ -29,8 +29,10 @@ import {
   clearSyncSession,
   formatSyncingOverview,
   isSyncSessionFresh,
+  ledgerHasSyncedHistory,
   readSyncSession,
   resolveUiSourceStatus,
+  shouldAutoImportMissing,
   sourceErrorForDisplay,
   sourcesForSyncTarget,
   UI_STATUS_LABEL,
@@ -105,6 +107,26 @@ const SOURCE_LABEL: Record<SourceId, string> = {
 };
 
 const SYNC_RANGE_KEY = "yieldscope.syncRange";
+/** Tab-session guard so quiet auto-import runs at most once per open tab. */
+const AUTO_IMPORT_SESSION_KEY = "yieldscope.autoImportAttempted";
+
+function markAutoImportAttempted(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(AUTO_IMPORT_SESSION_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+function wasAutoImportAttempted(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return sessionStorage.getItem(AUTO_IMPORT_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function formatLocalYmd(d: Date): string {
   const y = d.getFullYear();
@@ -125,21 +147,25 @@ function loadSavedRange(): {
   mode: SyncRangeMode;
   from: string;
   to: string;
+  /** Quiet incremental sync on dashboard open (default on). */
+  autoImportMissing: boolean;
 } {
   const defaults = defaultMonthBounds();
   if (typeof window === "undefined") {
-    return { mode: "all", ...defaults };
+    return { mode: "all", autoImportMissing: true, ...defaults };
   }
   try {
     const raw = localStorage.getItem(SYNC_RANGE_KEY);
-    if (!raw) return { mode: "all", ...defaults };
+    if (!raw) return { mode: "all", autoImportMissing: true, ...defaults };
     const parsed = JSON.parse(raw) as {
       mode?: SyncRangeMode;
       from?: string;
       to?: string;
+      autoImportMissing?: boolean;
     };
     return {
       mode: parsed.mode === "custom" ? "custom" : "all",
+      autoImportMissing: parsed.autoImportMissing !== false,
       from:
         typeof parsed.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.from)
           ? parsed.from
@@ -150,7 +176,7 @@ function loadSavedRange(): {
           : defaults.to,
     };
   } catch {
-    return { mode: "all", ...defaults };
+    return { mode: "all", autoImportMissing: true, ...defaults };
   }
 }
 
@@ -176,6 +202,7 @@ export function Dashboard({
   // Undefined until localStorage hydrates — avoids flashing default "all" range.
   const [rangeMode, setRangeMode] = useState<SyncRangeMode | null>(null);
   const [forceFullRefresh, setForceFullRefresh] = useState(false);
+  const [autoImportMissing, setAutoImportMissing] = useState(true);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [currency, setCurrency] = useState<DisplayCurrency>("USD");
@@ -199,6 +226,7 @@ export function Dashboard({
   useEffect(() => {
     const saved = loadSavedRange();
     setRangeMode(saved.mode);
+    setAutoImportMissing(saved.autoImportMissing);
     setFromDate(saved.from);
     setToDate(saved.to);
     setCurrency(loadDisplayCurrencyFromStorage(window.localStorage));
@@ -211,12 +239,17 @@ export function Dashboard({
     try {
       localStorage.setItem(
         SYNC_RANGE_KEY,
-        JSON.stringify({ mode: rangeMode, from: fromDate, to: toDate }),
+        JSON.stringify({
+          mode: rangeMode,
+          from: fromDate,
+          to: toDate,
+          autoImportMissing,
+        }),
       );
     } catch {
       /* ignore quota */
     }
-  }, [prefsReady, rangeMode, fromDate, toDate]);
+  }, [prefsReady, rangeMode, fromDate, toDate, autoImportMissing]);
 
   useEffect(() => {
     if (!prefsReady || displayCurrencyProp) return;
@@ -449,16 +482,54 @@ export function Dashboard({
     })();
   }, [prefsReady, refresh]);
 
+  // Quiet auto-import: once per tab session when user opted into “import missing”
+  // and already has ledger history. Never force-full; never on cold accounts.
+  useEffect(() => {
+    if (wasAutoImportAttempted()) return;
+    if (busy || syncingSources.length > 0 || ledgerLoading) return;
+    if (
+      !shouldAutoImportMissing({
+        rangeMode,
+        forceFull: forceFullRefresh,
+        autoImportMissing,
+        hasSyncedHistory: ledgerHasSyncedHistory(ledger?.sources),
+        ready: prefsReady && ledger != null && !ledgerLoading,
+        blocked: false,
+      })
+    ) {
+      return;
+    }
+    // Skip if a mid-flight session is still being recovered.
+    const session = readSyncSession();
+    if (session && isSyncSessionFresh(session) && session.pending.length > 0) {
+      return;
+    }
+    markAutoImportAttempted();
+    void runSync("all", { quiet: true });
+    // runSync closes over latest prefs; intentional one-shot after first ready ledger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot auto-import
+  }, [
+    prefsReady,
+    ledger,
+    ledgerLoading,
+    busy,
+    syncingSources.length,
+    rangeMode,
+    forceFullRefresh,
+    autoImportMissing,
+  ]);
+
   async function syncOneSource(
     source: SourceId,
     range: SyncRange,
     gen: number,
+    forceFull: boolean,
   ): Promise<{ status?: string; error?: string } | null> {
     const body: Record<string, unknown> = {
       source,
       chainId: chainId ?? 10143,
       range,
-      ...(range.mode === "all" && forceFullRefresh ? { forceFull: true } : {}),
+      ...(range.mode === "all" && forceFull ? { forceFull: true } : {}),
     };
     if (address) body.address = address;
 
@@ -521,29 +592,41 @@ export function Dashboard({
     return result;
   }
 
-  async function runSync(target: "all" | SourceId = "all") {
+  async function runSync(
+    target: "all" | SourceId = "all",
+    opts: { quiet?: boolean } = {},
+  ) {
     if (rangeMode == null) {
       setMessage("Still loading your sync preferences…");
       return;
     }
+    const quiet = Boolean(opts.quiet);
+    // Quiet auto-import is always incremental — never sneak a full redownload.
+    const forceFull = quiet ? false : forceFullRefresh;
     const gen = ++syncGen.current;
     const targets = sourcesForSyncTarget(target);
 
     const range: SyncRange =
       rangeMode === "all"
-        ? buildSyncRangeFromUi("all", fromDate, toDate, forceFullRefresh)
+        ? buildSyncRangeFromUi("all", fromDate, toDate, forceFull)
         : buildSyncRangeFromUi("custom", fromDate, toDate);
 
     if (range.mode === "custom" && (!range.from || !range.to)) {
-      setMessage("Pick both from and to dates, or choose All time.");
+      setMessage("Pick both from and to dates, or choose Import missing.");
       return;
     }
 
-    setBusy(true);
-    setLedgerLoading(true);
-    setLedger(null);
-    setChartEvents([]);
-    setMessage(formatSyncingOverview(targets));
+    if (!quiet) {
+      setBusy(true);
+      setLedgerLoading(true);
+      setLedger(null);
+      setChartEvents([]);
+    }
+    setMessage(
+      quiet
+        ? "Importing missing rewards since last sync…"
+        : formatSyncingOverview(targets),
+    );
     setSyncingSources(targets);
     writeSyncSession({
       startedAt: new Date().toISOString(),
@@ -584,7 +667,7 @@ export function Dashboard({
               `Syncing ${SOURCE_LABEL[src]} (${i + 1}/${ranges.length})…`,
             );
           }
-          result = await syncOneSource(src, ranges[i], gen);
+          result = await syncOneSource(src, ranges[i], gen, forceFull);
           if (result?.status === "error") break;
         }
         if (gen !== syncGen.current) return;
@@ -596,7 +679,13 @@ export function Dashboard({
           sources: targets,
           pending,
         });
-        setMessage(formatSyncingOverview(pending) ?? null);
+        setMessage(
+          quiet
+            ? pending.length > 0
+              ? "Importing missing rewards since last sync…"
+              : null
+            : (formatSyncingOverview(pending) ?? null),
+        );
 
         if (result?.status === "error" && result.error) {
           sourceErrors.push(`${SOURCE_LABEL[src]}: ${result.error}`);
@@ -607,22 +696,34 @@ export function Dashboard({
 
       const modeLabel =
         range.mode === "all"
-          ? forceFullRefresh
-            ? "all time · full history"
-            : "all time"
+          ? forceFull
+            ? "full history re-download"
+            : "import missing since last sync"
           : `${range.from} → ${range.to}`;
 
       if (sourceErrors.length > 0) {
         setMessage(
           `Sync finished with errors (${modeLabel}). Monad = current pending only. ${sourceErrors.join(" · ")}`,
         );
+      } else if (quiet) {
+        setMessage(
+          "Caught up on missing rewards since last sync. Monad refreshes current pending; LUNC pending may replace its snapshot.",
+        );
       } else {
         setMessage(
           `Sync finished (${modeLabel}). LUNC includes claimed on-chain rewards in range plus current pending when the range reaches today; Monad is pending-only.`,
         );
       }
-      if (forceFullRefresh) setForceFullRefresh(false);
-      await refresh();
+      if (forceFullRefresh && !quiet) setForceFullRefresh(false);
+      if (quiet) {
+        // Soft reload — keep tables visible while catching up.
+        await fetchEventsPage(1, pageSizeRef.current, eventsSortRef.current, eventsOrderRef.current, {
+          soft: true,
+        });
+        void refreshCharts();
+      } else {
+        await refresh();
+      }
       void refreshRates();
     } catch (err) {
       if (gen !== syncGen.current) return;
@@ -665,9 +766,11 @@ export function Dashboard({
   const customDisabled = rangeMode !== "custom";
   const syncOverview = formatSyncingOverview(syncingSources);
 
-  // Never paint ledger/totals until prefs hydrated + fetch finished (and not mid-sync).
+  // Never paint ledger/totals until prefs hydrated + fetch finished (and not mid-manual-sync).
+  // Quiet auto-import keeps tables visible (busy stays false; syncingSources drives the strip).
   const showDataSkeleton =
     !prefsReady || ledgerLoading || busy || ledger == null;
+  const syncInFlight = busy || syncingSources.length > 0;
 
   const byAssetRows = useMemo(() => {
     const rows = ledger?.aggregates?.byAsset ?? [];
@@ -764,7 +867,7 @@ export function Dashboard({
               <CurrencyLogo symbol={activeCurrency} size="sm" showLabel={false} />
               <select
                 value={activeCurrency}
-                disabled={Boolean(displayCurrencyProp) || busy || !prefsReady}
+                disabled={Boolean(displayCurrencyProp) || syncInFlight || !prefsReady}
                 onChange={(e) =>
                   setCurrency(parseDisplayCurrency(e.target.value))
                 }
@@ -781,15 +884,17 @@ export function Dashboard({
           <button
             type="button"
             className="btn-primary sync-btn"
-            disabled={busy || !prefsReady}
+            disabled={syncInFlight || !prefsReady}
             onClick={() => void runSync("all")}
-            aria-busy={busy}
+            aria-busy={syncInFlight}
           >
-            {busy ? (
+            {syncInFlight ? (
               <>
                 <span className="sync-spinner" aria-hidden />
-                Syncing…
+                {busy ? "Syncing…" : "Importing…"}
               </>
+            ) : rangeMode === "all" && !forceFullRefresh ? (
+              "Import missing"
             ) : (
               "Sync sources"
             )}
@@ -797,10 +902,14 @@ export function Dashboard({
         </div>
       </header>
 
-      {busy || syncOverview ? (
+      {syncInFlight || syncOverview ? (
         <div className="sync-status-strip" role="status" aria-live="polite">
           <span className="sync-spinner" aria-hidden />
-          <span>{syncOverview ?? "Sync in progress…"}</span>
+          <span>
+            {message && syncInFlight
+              ? message
+              : (syncOverview ?? "Sync in progress…")}
+          </span>
         </div>
       ) : null}
 
@@ -815,10 +924,13 @@ export function Dashboard({
               type="radio"
               name="sync-range-mode"
               checked={rangeMode === "all"}
-              onChange={() => setRangeMode("all")}
-              disabled={busy}
+              onChange={() => {
+                setRangeMode("all");
+                setForceFullRefresh(false);
+              }}
+              disabled={syncInFlight}
             />
-            <span>All time</span>
+            <span>Import missing since last sync</span>
           </label>
           <label className="sync-range-option">
             <input
@@ -826,7 +938,7 @@ export function Dashboard({
               name="sync-range-mode"
               checked={rangeMode === "custom"}
               onChange={() => setRangeMode("custom")}
-              disabled={busy}
+              disabled={syncInFlight}
             />
             <span>Date range</span>
           </label>
@@ -841,7 +953,7 @@ export function Dashboard({
                 setFromDate(e.target.value);
                 if (rangeMode !== "custom") setRangeMode("custom");
               }}
-              disabled={busy || customDisabled}
+              disabled={syncInFlight || customDisabled}
               max={toDate || undefined}
             />
           </label>
@@ -854,30 +966,41 @@ export function Dashboard({
                 setToDate(e.target.value);
                 if (rangeMode !== "custom") setRangeMode("custom");
               }}
-              disabled={busy || customDisabled}
+              disabled={syncInFlight || customDisabled}
               min={fromDate || undefined}
             />
           </label>
         </div>
         {rangeMode === "all" ? (
-          <label className="sync-range-option sync-range-force">
-            <input
-              type="checkbox"
-              checked={forceFullRefresh}
-              onChange={(e) => setForceFullRefresh(e.target.checked)}
-              disabled={busy}
-            />
-            <span>Re-download full history</span>
-          </label>
+          <>
+            <label className="sync-range-option sync-range-force">
+              <input
+                type="checkbox"
+                checked={autoImportMissing}
+                onChange={(e) => setAutoImportMissing(e.target.checked)}
+                disabled={syncInFlight || forceFullRefresh}
+              />
+              <span>Auto-import on open</span>
+            </label>
+            <label className="sync-range-option sync-range-force">
+              <input
+                type="checkbox"
+                checked={forceFullRefresh}
+                onChange={(e) => setForceFullRefresh(e.target.checked)}
+                disabled={syncInFlight}
+              />
+              <span>Re-download full history</span>
+            </label>
+          </>
         ) : null}
         <p className="sync-range-hint">
-          Sync window applies to Binance, OKX, and LUNC claim history (UTC day
-          bounds). The tables below show your full stored ledger after sync —
-          not a filtered preview of the picker. LUNC also refreshes current
-          pending rewards when the range includes today. Monad stake only
-          refreshes current pending (no claim history). After the first sync,
-          All time only picks up new rewards unless you re-download full
-          history.
+          Import missing fetches only newer Binance / OKX / LUNC claim rows
+          after each source’s last synced reward (upsert — older rows stay).
+          Auto-import runs once when you open the dashboard if you already have
+          history. Re-download full history replaces CEX/LUNC claim streams.
+          Monad always refreshes current pending only (no claim history). LUNC
+          pending is a point-in-time snapshot and may replace prior pending
+          rows.
           {selectedWindowLabel
             ? ` Selected window: ${selectedWindowLabel}.`
             : ""}
@@ -895,7 +1018,7 @@ export function Dashboard({
       {ledger?.wallet ? (
         <p className="msg mono">Wallet {ledger.wallet.address}</p>
       ) : null}
-      {message && !busy ? <p className="msg">{message}</p> : null}
+      {message && !syncInFlight ? <p className="msg">{message}</p> : null}
       {coverageGaps.length > 0 ? (
         <p className="msg">
           Missing price rates for: {coverageGaps.slice(0, 8).join(", ")}
@@ -1171,7 +1294,7 @@ export function Dashboard({
       </div>
         </>
       )}
-      {message && (showDataSkeleton || busy) ? (
+      {message && showDataSkeleton ? (
         <p className="msg" role="status">
           {message}
         </p>

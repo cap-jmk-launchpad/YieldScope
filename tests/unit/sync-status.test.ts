@@ -3,7 +3,9 @@ import {
   SYNC_SESSION_STALE_MS,
   formatSyncingOverview,
   isSyncSessionFresh,
+  ledgerHasSyncedHistory,
   resolveUiSourceStatus,
+  shouldAutoImportMissing,
   sourceErrorForDisplay,
   sourcesForSyncTarget,
 } from "../../web/src/lib/sync-status";
@@ -64,5 +66,49 @@ describe("sync-status helpers", () => {
         now,
       ),
     ).toBe(false);
+  });
+
+  it("ledgerHasSyncedHistory detects prior earn rows", () => {
+    expect(ledgerHasSyncedHistory(null)).toBe(false);
+    expect(
+      ledgerHasSyncedHistory({
+        binance: { status: "not_connected", eventCount: 0 },
+      }),
+    ).toBe(false);
+    expect(
+      ledgerHasSyncedHistory({
+        binance: { status: "ok", eventCount: 3 },
+      }),
+    ).toBe(true);
+    expect(
+      ledgerHasSyncedHistory({
+        okx: { status: "error", eventCount: 0, lastSyncedAt: "2024-07-01" },
+      }),
+    ).toBe(true);
+  });
+
+  it("shouldAutoImportMissing gates quiet incremental sync", () => {
+    const base = {
+      rangeMode: "all" as const,
+      forceFull: false,
+      autoImportMissing: true,
+      hasSyncedHistory: true,
+      ready: true,
+      blocked: false,
+    };
+    expect(shouldAutoImportMissing(base)).toBe(true);
+    expect(shouldAutoImportMissing({ ...base, rangeMode: "custom" })).toBe(
+      false,
+    );
+    expect(shouldAutoImportMissing({ ...base, forceFull: true })).toBe(false);
+    expect(
+      shouldAutoImportMissing({ ...base, autoImportMissing: false }),
+    ).toBe(false);
+    expect(
+      shouldAutoImportMissing({ ...base, hasSyncedHistory: false }),
+    ).toBe(false);
+    expect(shouldAutoImportMissing({ ...base, ready: false })).toBe(false);
+    expect(shouldAutoImportMissing({ ...base, blocked: true })).toBe(false);
+    expect(shouldAutoImportMissing({ ...base, rangeMode: null })).toBe(false);
   });
 });

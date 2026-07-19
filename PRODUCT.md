@@ -31,15 +31,19 @@ No Zerion sprawl. No tax engine. No APY farm browser.
 
 ## Sync window
 
-Dashboard sync supports **All time** (full available CEX history) or a **custom from/to date range** (`YYYY-MM-DD`, UTC day bounds).
+Dashboard sync supports three user-facing modes:
+
+1. **Import missing since last sync** (default) — CEX (+ LUNC claim history) fetch only rows newer than each source’s high-water mark (with a 1-day overlap), then upsert. Does not wipe older rows. With **Auto-import on open** enabled (default), the dashboard quietly runs this once after load when you already have history.
+2. **Re-download full history** — opt-in under that mode; full replace for CEX/LUNC claim streams.
+3. **Date range** — custom `YYYY-MM-DD` window (UTC day bounds); merge-replace inside the window only.
 
 | Source | Sync / persist | Display |
 |--------|----------------|---------|
-| Binance / OKX | History fetched for the selected window. Custom → merge-replace inside the window (rows outside are kept). All-time first run or “Re-download full history” → full replace. Later All-time → incremental upsert from high-water. | Full persisted ledger (picker is **not** a view filter) |
+| Binance / OKX | History fetched for the selected window. Custom → merge-replace inside the window (rows outside are kept). First run or “Re-download full history” → full replace. Later “Import missing” → incremental upsert from high-water. | Full persisted ledger (picker is **not** a view filter) |
 | Monad | Point-in-time pending rewards — **date range ignored**; always full-replace snapshot | Current pending rows (`earnedAt` = sync time) |
-| LUNC | Claimed `withdraw_rewards` / autostake history for the selected window (FCD; LCD fallback ~100d prune) + current pending when the range reaches today | Claimed rows at tx time + pending snapshot (`earnedAt` = sync time) |
+| LUNC | Claimed `withdraw_rewards` / autostake history for the selected window (FCD; LCD fallback ~100d prune) + current pending when the range reaches today. Incremental when “Import missing”; pending snapshot still refreshes. | Claimed rows at tx time + pending snapshot (`earnedAt` = sync time) |
 
-Last-used window preference is stored in the browser (`localStorage`).
+Last-used window + auto-import preference are stored in the browser (`localStorage`). Auto-import never force-full-syncs and never runs on a cold ledger (no prior history).
 
 If exchange history in the ledger only spans a few days after a multi-year sync, use **Re-download full history** or sync a wider custom range (older truncating bugs capped loads at 500 rows).
 

@@ -507,6 +507,25 @@ describe("sync with persistence", () => {
     expect(all.forceFull).toBe(false);
   });
 
+  it("resolveCexSyncPlan incremental uses high-water − overlap and upsert", async () => {
+    const highWater = Date.parse("2024-06-15T12:00:00.000Z");
+    getSourceHighWaterMs.mockResolvedValue(highWater);
+    const { resolveCexSyncPlan } = await import("../../web/src/lib/sync");
+    const { INCREMENTAL_OVERLAP_MS } = await import(
+      "../../web/src/lib/sync-range"
+    );
+    const nowMs = Date.parse("2024-07-01T00:00:00.000Z");
+    const plan = await resolveCexSyncPlan(
+      { userId: "u1", window: { mode: "all", fromMs: null, toMs: null } },
+      "okx",
+      nowMs,
+    );
+    expect(plan.persistMode).toBe("upsert");
+    expect(plan.opts.startMs).toBe(highWater - INCREMENTAL_OVERLAP_MS);
+    expect(plan.opts.endMs).toBe(nowMs);
+    expect(plan.opts.allTime).toBeUndefined();
+  });
+
   it("resolveCexSyncPlan treats high-water errors as cold start", async () => {
     getSourceHighWaterMs.mockRejectedValueOnce(new Error("db"));
     const { resolveCexSyncPlan } = await import("../../web/src/lib/sync");
