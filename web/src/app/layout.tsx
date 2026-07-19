@@ -21,10 +21,32 @@ const plexMono = IBM_Plex_Mono({
   weight: ["400", "500"],
 });
 
+const SITE_URL = "https://yieldscope.d3bu7.com";
+const SITE_TITLE = "YieldScope — Solving scattered rewards";
+const SITE_DESCRIPTION =
+  "Solving scattered rewards. Track all your crypto rewards in one place";
+
 export const metadata: Metadata = {
-  title: "YieldScope — solving scattered rewards",
-  description:
-    "Track all your crypto rewards in one place. Sync Binance Simple Earn, OKX savings, Monad staking, and LUNC — with an onchain checkpoint.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: SITE_TITLE,
+    template: "%s — YieldScope",
+  },
+  description: SITE_DESCRIPTION,
+  applicationName: "YieldScope",
+  openGraph: {
+    title: "YieldScope",
+    description: SITE_DESCRIPTION,
+    url: "/",
+    siteName: "YieldScope",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "YieldScope",
+    description: SITE_DESCRIPTION,
+  },
 };
 
 export default function RootLayout({

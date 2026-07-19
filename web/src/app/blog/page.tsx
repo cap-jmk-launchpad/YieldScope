@@ -1,10 +1,25 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { listBlogPosts } from "@/lib/blog";
 
-export const metadata = {
-  title: "Blog — YieldScope",
+export const metadata: Metadata = {
+  title: "Blog",
   description:
     "Notes on scattered crypto rewards, CeFi earn ledgers, and Monad attestation.",
+  openGraph: {
+    title: "Blog — YieldScope",
+    description:
+      "Notes on scattered crypto rewards, CeFi earn ledgers, and Monad attestation.",
+    url: "/blog",
+    siteName: "YieldScope",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Blog — YieldScope",
+    description:
+      "Notes on scattered crypto rewards, CeFi earn ledgers, and Monad attestation.",
+  },
 };
 
 export default function BlogIndexPage() {

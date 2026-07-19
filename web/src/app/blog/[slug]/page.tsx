@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getBlogPost, listBlogPosts } from "@/lib/blog";
@@ -9,13 +10,32 @@ export function generateStaticParams() {
   return listBlogPosts().map((p) => ({ slug: p.slug }));
 }
 
-export async function generateMetadata({ params }: Props) {
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const post = getBlogPost(slug);
-  if (!post) return { title: "Post — YieldScope" };
+  if (!post) return { title: "Post" };
+
+  const title = post.title;
+  const description =
+    post.description ||
+    "Solving scattered rewards. Track all your crypto rewards in one place";
+  const url = `/blog/${slug}`;
+
   return {
-    title: `${post.title} — YieldScope`,
-    description: post.description,
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      url,
+      siteName: "YieldScope",
+      type: "article",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
   };
 }
 
