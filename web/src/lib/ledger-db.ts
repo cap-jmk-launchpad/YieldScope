@@ -52,6 +52,37 @@ export interface LedgerAggregates {
 /** How earn_events are included in a ledger snapshot. */
 export type LedgerEventsMode = "all" | "page" | "none" | "chart";
 
+/** Server-side sort columns for paged earn_events (matches DB columns). */
+export type LedgerEventsSort = "earned_at" | "amount" | "asset" | "source";
+export type LedgerSortOrder = "asc" | "desc";
+
+export const LEDGER_EVENTS_SORT_COLUMNS: readonly LedgerEventsSort[] = [
+  "earned_at",
+  "amount",
+  "asset",
+  "source",
+] as const;
+
+export function parseLedgerEventsSort(
+  raw: string | null | undefined,
+): LedgerEventsSort {
+  if (
+    raw === "earned_at" ||
+    raw === "amount" ||
+    raw === "asset" ||
+    raw === "source"
+  ) {
+    return raw;
+  }
+  return "earned_at";
+}
+
+export function parseLedgerSortOrder(
+  raw: string | null | undefined,
+): LedgerSortOrder {
+  return raw === "asc" ? "asc" : "desc";
+}
+
 export interface LoadDbLedgerOptions {
   /**
    * - `all` — page through every event (checkpoint / legacy). Default for
@@ -64,6 +95,10 @@ export interface LoadDbLedgerOptions {
   /** 1-based page when eventsMode is `page`. */
   eventsPage?: number;
   eventsPageSize?: number;
+  /** Column to ORDER BY when eventsMode is `page` (default earned_at). */
+  eventsSort?: LedgerEventsSort;
+  /** asc | desc (default desc). */
+  eventsOrder?: LedgerSortOrder;
 }
 
 export interface DbLedgerSnapshot {
@@ -73,6 +108,8 @@ export interface DbLedgerSnapshot {
   eventsMode: LedgerEventsMode;
   eventsPage?: number;
   eventsPageSize?: number;
+  eventsSort?: LedgerEventsSort;
+  eventsOrder?: LedgerSortOrder;
   sources: Record<
     SourceId,
     { status: SourceStatus; error?: string; eventCount: number; lastSyncedAt?: string }
@@ -396,16 +433,24 @@ async function loadEarnEventsPage(
   profileId: string,
   page: number,
   pageSize: number,
+  sort: LedgerEventsSort = "earned_at",
+  order: LedgerSortOrder = "desc",
 ): Promise<EarnEvent[]> {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
+  const ascending = order === "asc";
   // Table list omits meta (can be large on CEX reward rows).
-  const { data, error } = await admin
+  // Primary sort + earned_at / id tiebreakers keep page boundaries stable.
+  let query = admin
     .from("earn_events")
     .select("id,source,asset,amount,earned_at,raw_type")
     .eq("profile_id", profileId)
-    .order("earned_at", { ascending: false })
-    .range(from, to);
+    .order(sort, { ascending });
+  if (sort !== "earned_at") {
+    query = query.order("earned_at", { ascending: false });
+  }
+  query = query.order("id", { ascending: true }).range(from, to);
+  const { data, error } = await query;
   if (error) throw new LedgerPersistError(error.message);
   return (data ?? []).map((row) =>
     mapEventRow(row as Record<string, unknown>, true),
@@ -461,6 +506,8 @@ export async function loadDbLedger(
   const eventsMode: LedgerEventsMode = options.eventsMode ?? "all";
   const eventsPage = clampEventsPage(options.eventsPage);
   const eventsPageSize = clampEventsPageSize(options.eventsPageSize);
+  const eventsSort = parseLedgerEventsSort(options.eventsSort);
+  const eventsOrder = parseLedgerSortOrder(options.eventsOrder);
 
   const admin = createAdminClient();
   const { data: profile, error: pErr } = await admin
@@ -475,6 +522,8 @@ export async function loadDbLedger(
     if (eventsMode === "page") {
       empty.eventsPage = eventsPage;
       empty.eventsPageSize = eventsPageSize;
+      empty.eventsSort = eventsSort;
+      empty.eventsOrder = eventsOrder;
     }
     return empty;
   }
@@ -539,12 +588,19 @@ export async function loadDbLedger(
       firstEarnedAt: (r.first_earned_at as string | null) ?? null,
       lastEarnedAt: (r.last_earned_at as string | null) ?? null,
     })),
-    byAsset: (byAssetRes.data ?? []).map((r) => ({
-      asset: r.asset as string,
-      source: r.source as SourceId,
-      eventCount: Number(r.event_count),
-      totalAmount: String(r.total_amount ?? 0),
-    })),
+    // Default: largest native totals first so by-asset table first page is useful.
+    byAsset: (byAssetRes.data ?? [])
+      .map((r) => ({
+        asset: r.asset as string,
+        source: r.source as SourceId,
+        eventCount: Number(r.event_count),
+        totalAmount: String(r.total_amount ?? 0),
+      }))
+      .sort((a, b) => {
+        const diff = Number(b.totalAmount) - Number(a.totalAmount);
+        if (Number.isFinite(diff) && diff !== 0) return diff;
+        return a.asset.localeCompare(b.asset) || a.source.localeCompare(b.source);
+      }),
   };
 
   const eventsTotal = aggregates.bySource.reduce(
@@ -561,6 +617,8 @@ export async function loadDbLedger(
       profileId,
       eventsPage,
       eventsPageSize,
+      eventsSort,
+      eventsOrder,
     );
   } else if (eventsMode === "chart") {
     events = await loadChartSeriesEvents(admin, profileId);
@@ -586,6 +644,8 @@ export async function loadDbLedger(
   if (eventsMode === "page") {
     snap.eventsPage = eventsPage;
     snap.eventsPageSize = eventsPageSize;
+    snap.eventsSort = eventsSort;
+    snap.eventsOrder = eventsOrder;
   }
   return snap;
 }

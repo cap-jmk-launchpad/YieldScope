@@ -3,10 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { CurrencyCell, CurrencyLogo } from "@/components/asset-icon";
+import {
+  DashboardDataSkeleton,
+  SyncRangeSkeleton,
+  TableBodySkeleton,
+} from "@/components/dashboard-skeleton";
 import { EarningsCharts } from "@/components/earnings-charts";
+import { SortableTh } from "@/components/sortable-th";
 import { TablePager } from "@/components/table-pager";
 import type { EarnEvent, SourceId, SourceStatus } from "@/lib/adapters/types";
 import type { ConvertAmount } from "@/lib/earnings-charts";
+import type { LedgerEventsSort, LedgerSortOrder } from "@/lib/ledger-db";
 import {
   auditPriceCoverage,
 } from "@/lib/prices/missing-symbols";
@@ -41,6 +48,12 @@ import {
   type PageSizeOption,
 } from "@/lib/table-pagination";
 import {
+  sortAssetRows,
+  toggleSortOrder,
+  type AssetSortKey,
+  type SortOrder,
+} from "@/lib/table-sort";
+import {
   DISPLAY_CURRENCIES,
   type DisplayCurrency,
   formatDisplayAmount,
@@ -58,6 +71,8 @@ interface LedgerResponse {
   eventsMode?: string;
   eventsPage?: number;
   eventsPageSize?: number;
+  eventsSort?: LedgerEventsSort;
+  eventsOrder?: LedgerSortOrder;
   sources: Record<
     SourceId,
     { status: SourceStatus; error?: string; eventCount: number; lastSyncedAt?: string }
@@ -158,7 +173,8 @@ export function Dashboard({
   const [busy, setBusy] = useState(false);
   const [syncingSources, setSyncingSources] = useState<SourceId[]>([]);
   const [message, setMessage] = useState<string | null>(null);
-  const [rangeMode, setRangeMode] = useState<SyncRangeMode>("all");
+  // Undefined until localStorage hydrates — avoids flashing default "all" range.
+  const [rangeMode, setRangeMode] = useState<SyncRangeMode | null>(null);
   const [forceFullRefresh, setForceFullRefresh] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -169,8 +185,13 @@ export function Dashboard({
   const [eventsPage, setEventsPage] = useState(1);
   const [assetsPage, setAssetsPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(DEFAULT_PAGE_SIZE);
-  const [pageSizeReady, setPageSizeReady] = useState(false);
+  const [prefsReady, setPrefsReady] = useState(false);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsSort, setEventsSort] = useState<LedgerEventsSort>("earned_at");
+  const [eventsOrder, setEventsOrder] = useState<LedgerSortOrder>("desc");
+  const [assetsSort, setAssetsSort] = useState<AssetSortKey>("native");
+  const [assetsOrder, setAssetsOrder] = useState<SortOrder>("desc");
   const syncGen = useRef(0);
   const eventsFetchGen = useRef(0);
   const { address, chainId } = useAccount();
@@ -182,11 +203,11 @@ export function Dashboard({
     setToDate(saved.to);
     setCurrency(loadDisplayCurrencyFromStorage(window.localStorage));
     setPageSize(loadPageSizeFromStorage(window.localStorage));
-    setPageSizeReady(true);
+    setPrefsReady(true);
   }, []);
 
   useEffect(() => {
-    if (!fromDate || !toDate) return;
+    if (!prefsReady || !fromDate || !toDate || rangeMode == null) return;
     try {
       localStorage.setItem(
         SYNC_RANGE_KEY,
@@ -195,17 +216,17 @@ export function Dashboard({
     } catch {
       /* ignore quota */
     }
-  }, [rangeMode, fromDate, toDate]);
+  }, [prefsReady, rangeMode, fromDate, toDate]);
 
   useEffect(() => {
-    if (displayCurrencyProp) return;
+    if (!prefsReady || displayCurrencyProp) return;
     saveDisplayCurrencyToStorage(currency, window.localStorage);
-  }, [currency, displayCurrencyProp]);
+  }, [prefsReady, currency, displayCurrencyProp]);
 
   useEffect(() => {
-    if (!pageSizeReady) return;
+    if (!prefsReady) return;
     savePageSizeToStorage(pageSize, window.localStorage);
-  }, [pageSize, pageSizeReady]);
+  }, [pageSize, prefsReady]);
 
   const refreshRates = useCallback(async () => {
     try {
@@ -250,14 +271,29 @@ export function Dashboard({
   }, []);
 
   const fetchEventsPage = useCallback(
-    async (page: number, size: PageSizeOption) => {
+    async (
+      page: number,
+      size: PageSizeOption,
+      sort: LedgerEventsSort = eventsSort,
+      order: LedgerSortOrder = eventsOrder,
+      opts: { soft?: boolean } = {},
+    ) => {
       const gen = ++eventsFetchGen.current;
-      setEventsLoading(true);
+      if (!opts.soft) {
+        // Hard load: clear stale rows so wrong-window / old-sort data never paints.
+        setLedgerLoading(true);
+        setLedger(null);
+        setChartEvents([]);
+      } else {
+        setEventsLoading(true);
+      }
       try {
         const qs = new URLSearchParams({
           eventsMode: "page",
           eventsPage: String(page),
           eventsPageSize: String(size),
+          sort,
+          order,
         });
         const res = await fetch(`/api/ledger?${qs}`);
         const json = (await res.json()) as LedgerResponse;
@@ -267,68 +303,128 @@ export function Dashboard({
           return;
         }
         setLedger(json);
+        if (json.eventsSort) setEventsSort(json.eventsSort);
+        if (json.eventsOrder) setEventsOrder(json.eventsOrder);
       } catch (err) {
         if (gen !== eventsFetchGen.current) return;
         setMessage(err instanceof Error ? err.message : "Failed to load ledger");
       } finally {
-        if (gen === eventsFetchGen.current) setEventsLoading(false);
+        if (gen === eventsFetchGen.current) {
+          setEventsLoading(false);
+          setLedgerLoading(false);
+        }
       }
     },
-    [],
+    [eventsSort, eventsOrder],
   );
 
   const handleEventsPageChange = useCallback(
     (page: number) => {
       setEventsPage(page);
-      void fetchEventsPage(page, pageSize);
+      void fetchEventsPage(page, pageSize, eventsSort, eventsOrder, {
+        soft: true,
+      });
     },
-    [fetchEventsPage, pageSize],
+    [fetchEventsPage, pageSize, eventsSort, eventsOrder],
   );
 
-  // Re-bind page-size handler now that fetchEventsPage exists.
+  const handleEventsSort = useCallback(
+    (key: string) => {
+      const col = key as LedgerEventsSort;
+      const nextOrder = toggleSortOrder(
+        eventsSort,
+        col,
+        eventsOrder,
+        col === "earned_at" || col === "amount" ? "desc" : "asc",
+      ) as LedgerSortOrder;
+      setEventsSort(col);
+      setEventsOrder(nextOrder);
+      setEventsPage(1);
+      void fetchEventsPage(1, pageSize, col, nextOrder, { soft: true });
+    },
+    [eventsSort, eventsOrder, fetchEventsPage, pageSize],
+  );
+
+  const handleAssetsSort = useCallback(
+    (key: string) => {
+      const col = key as AssetSortKey;
+      setAssetsOrder((order) =>
+        toggleSortOrder(
+          assetsSort,
+          col,
+          order,
+          col === "asset" || col === "source" ? "asc" : "desc",
+        ),
+      );
+      setAssetsSort(col);
+      setAssetsPage(1);
+    },
+    [assetsSort],
+  );
+
   const handlePageSizeChange = useCallback(
     (size: PageSizeOption) => {
       const next = parsePageSize(size);
       setPageSize(next);
       setEventsPage(1);
       setAssetsPage(1);
-      void fetchEventsPage(1, next);
+      void fetchEventsPage(1, next, eventsSort, eventsOrder, { soft: true });
     },
-    [fetchEventsPage],
+    [fetchEventsPage, eventsSort, eventsOrder],
   );
 
   const pageSizeRef = useRef(pageSize);
   pageSizeRef.current = pageSize;
+  const eventsSortRef = useRef(eventsSort);
+  eventsSortRef.current = eventsSort;
+  const eventsOrderRef = useRef(eventsOrder);
+  eventsOrderRef.current = eventsOrder;
 
   const refresh = useCallback(async () => {
     const size = pageSizeRef.current;
-    const qs = new URLSearchParams({
-      eventsMode: "page",
-      eventsPage: "1",
-      eventsPageSize: String(size),
-    });
-    const res = await fetch(`/api/ledger?${qs}`);
-    const json = (await res.json()) as LedgerResponse;
-    setLedger(json);
-    setEventsPage(1);
-    setAssetsPage(1);
-    if (!res.ok) {
-      setMessage(json.error ?? "Failed to load ledger");
-    } else {
-      void refreshCharts();
+    const sort = eventsSortRef.current;
+    const order = eventsOrderRef.current;
+    const gen = ++eventsFetchGen.current;
+    setLedgerLoading(true);
+    setLedger(null);
+    setChartEvents([]);
+    try {
+      const qs = new URLSearchParams({
+        eventsMode: "page",
+        eventsPage: "1",
+        eventsPageSize: String(size),
+        sort,
+        order,
+      });
+      const res = await fetch(`/api/ledger?${qs}`);
+      const json = (await res.json()) as LedgerResponse;
+      if (gen !== eventsFetchGen.current) return;
+      setLedger(json);
+      setEventsPage(1);
+      setAssetsPage(1);
+      if (!res.ok) {
+        setMessage(json.error ?? "Failed to load ledger");
+      } else {
+        void refreshCharts();
+      }
+    } catch (err) {
+      if (gen !== eventsFetchGen.current) return;
+      setMessage(err instanceof Error ? err.message : "Failed to load ledger");
+    } finally {
+      if (gen === eventsFetchGen.current) setLedgerLoading(false);
     }
   }, [refreshCharts]);
 
-  // Initial load once localStorage page size is ready (avoids a 25→saved double fetch).
+  // Initial load once prefs (incl. saved sync window) are ready.
   useEffect(() => {
-    if (!pageSizeReady) return;
+    if (!prefsReady) return;
     void refresh();
     void refreshRates();
-  }, [pageSizeReady, refresh, refreshRates]);
+  }, [prefsReady, refresh, refreshRates]);
 
   // Recover visible sync state after refresh / navigation mid-sync.
   useEffect(() => {
-    if (!pageSizeReady) return;
+    if (!prefsReady) return;
     const session = readSyncSession();
     if (!session || !isSyncSessionFresh(session)) {
       clearSyncSession();
@@ -351,7 +447,7 @@ export function Dashboard({
       setSyncingSources([]);
       setMessage("Synced status refreshed.");
     })();
-  }, [pageSizeReady, refresh]);
+  }, [prefsReady, refresh]);
 
   async function syncOneSource(
     source: SourceId,
@@ -426,6 +522,10 @@ export function Dashboard({
   }
 
   async function runSync(target: "all" | SourceId = "all") {
+    if (rangeMode == null) {
+      setMessage("Still loading your sync preferences…");
+      return;
+    }
     const gen = ++syncGen.current;
     const targets = sourcesForSyncTarget(target);
 
@@ -440,6 +540,9 @@ export function Dashboard({
     }
 
     setBusy(true);
+    setLedgerLoading(true);
+    setLedger(null);
+    setChartEvents([]);
     setMessage(formatSyncingOverview(targets));
     setSyncingSources(targets);
     writeSyncSession({
@@ -562,7 +665,24 @@ export function Dashboard({
   const customDisabled = rangeMode !== "custom";
   const syncOverview = formatSyncingOverview(syncingSources);
 
-  const byAssetRows = ledger?.aggregates?.byAsset ?? [];
+  // Never paint ledger/totals until prefs hydrated + fetch finished (and not mid-sync).
+  const showDataSkeleton =
+    !prefsReady || ledgerLoading || busy || ledger == null;
+
+  const byAssetRows = useMemo(() => {
+    const rows = ledger?.aggregates?.byAsset ?? [];
+    const withFiat = rows.map((a) => ({
+      ...a,
+      fiatTotal: convertNative(
+        Number(a.totalAmount),
+        a.asset,
+        activeCurrency,
+        rates,
+      ),
+    }));
+    return sortAssetRows(withFiat, assetsSort, assetsOrder);
+  }, [ledger?.aggregates?.byAsset, assetsSort, assetsOrder, activeCurrency, rates]);
+
   // Server already returns the current events page (not the full history).
   const eventRows = ledgerEventsForDisplay(ledger?.events ?? []);
   const eventsTotal =
@@ -617,7 +737,9 @@ export function Dashboard({
     if (eventsPage !== eventsSlice.page) setEventsPage(eventsSlice.page);
   }, [eventsPage, eventsSlice.page]);
 
-  const chartRows = chartEvents.length > 0 ? chartEvents : eventRows;
+  // Charts: only precomputed daily series — never fall back to a page of raw
+  // events (that looked like “only the first year / first page”).
+  const chartRows = chartEvents;
 
   const coverageGaps = useMemo(() => {
     if (missingAssets.length > 0) return missingAssets;
@@ -642,7 +764,7 @@ export function Dashboard({
               <CurrencyLogo symbol={activeCurrency} size="sm" showLabel={false} />
               <select
                 value={activeCurrency}
-                disabled={Boolean(displayCurrencyProp) || busy}
+                disabled={Boolean(displayCurrencyProp) || busy || !prefsReady}
                 onChange={(e) =>
                   setCurrency(parseDisplayCurrency(e.target.value))
                 }
@@ -659,7 +781,7 @@ export function Dashboard({
           <button
             type="button"
             className="btn-primary sync-btn"
-            disabled={busy}
+            disabled={busy || !prefsReady}
             onClick={() => void runSync("all")}
             aria-busy={busy}
           >
@@ -682,6 +804,9 @@ export function Dashboard({
         </div>
       ) : null}
 
+      {!prefsReady || rangeMode == null ? (
+        <SyncRangeSkeleton />
+      ) : (
       <fieldset className="sync-range">
         <legend className="sync-range-legend">Sync window</legend>
         <div className="sync-range-modes" role="radiogroup" aria-label="Sync window">
@@ -758,7 +883,12 @@ export function Dashboard({
             : ""}
         </p>
       </fieldset>
+      )}
 
+      {showDataSkeleton ? (
+        <DashboardDataSkeleton pageSize={pageSize} />
+      ) : (
+        <>
       <p className="total">{totalLabel}</p>
       {coverageHint ? <p className="msg">{coverageHint}</p> : null}
       {ratesNote ? <p className="msg">{ratesNote}</p> : null}
@@ -834,15 +964,17 @@ export function Dashboard({
         })}
       </div>
 
-      <EarningsCharts
-        events={chartRows}
-        convertAmount={convertAmount}
-        displayCurrency={chartDisplayCurrency}
-      />
-      {chartsLoading ? (
+      {chartsLoading && chartRows.length === 0 ? (
         <p className="msg" role="status">
           Loading chart history…
         </p>
+      ) : null}
+      {chartRows.length > 0 ? (
+        <EarningsCharts
+          events={chartRows}
+          convertAmount={convertAmount}
+          displayCurrency={chartDisplayCurrency}
+        />
       ) : null}
 
       {byAssetRows.length > 0 ? (
@@ -857,22 +989,46 @@ export function Dashboard({
             </colgroup>
             <thead>
               <tr>
-                <th>Asset</th>
-                <th>Source</th>
-                <th>Events</th>
-                <th>Total (native)</th>
-                <th>Total ({activeCurrency})</th>
+                <SortableTh
+                  label="Asset"
+                  columnKey="asset"
+                  activeKey={assetsSort}
+                  order={assetsOrder}
+                  onSort={handleAssetsSort}
+                />
+                <SortableTh
+                  label="Source"
+                  columnKey="source"
+                  activeKey={assetsSort}
+                  order={assetsOrder}
+                  onSort={handleAssetsSort}
+                />
+                <SortableTh
+                  label="Events"
+                  columnKey="events"
+                  activeKey={assetsSort}
+                  order={assetsOrder}
+                  onSort={handleAssetsSort}
+                />
+                <SortableTh
+                  label="Total (native)"
+                  columnKey="native"
+                  activeKey={assetsSort}
+                  order={assetsOrder}
+                  onSort={handleAssetsSort}
+                />
+                <SortableTh
+                  label={`Total (${activeCurrency})`}
+                  columnKey="fiat"
+                  activeKey={assetsSort}
+                  order={assetsOrder}
+                  onSort={handleAssetsSort}
+                />
               </tr>
             </thead>
             <tbody>
               {assetsSlice.items.map((a) => {
-                const converted = convertNative(
-                  Number(a.totalAmount),
-                  a.asset,
-                  activeCurrency,
-                  rates,
-                );
-                const fiat = formatDisplayAmount(converted, activeCurrency);
+                const fiat = formatDisplayAmount(a.fiatTotal ?? null, activeCurrency);
                 const sourceLabel = SOURCE_LABEL[a.source];
                 return (
                   <tr key={`${a.source}:${a.asset}`}>
@@ -919,15 +1075,45 @@ export function Dashboard({
           </colgroup>
           <thead>
             <tr>
-              <th>When</th>
-              <th>Source</th>
-              <th>Asset</th>
-              <th>Amount</th>
+              <SortableTh
+                label="When"
+                columnKey="earned_at"
+                activeKey={eventsSort}
+                order={eventsOrder}
+                onSort={handleEventsSort}
+                disabled={eventsLoading}
+              />
+              <SortableTh
+                label="Source"
+                columnKey="source"
+                activeKey={eventsSort}
+                order={eventsOrder}
+                onSort={handleEventsSort}
+                disabled={eventsLoading}
+              />
+              <SortableTh
+                label="Asset"
+                columnKey="asset"
+                activeKey={eventsSort}
+                order={eventsOrder}
+                onSort={handleEventsSort}
+                disabled={eventsLoading}
+              />
+              <SortableTh
+                label="Amount"
+                columnKey="amount"
+                activeKey={eventsSort}
+                order={eventsOrder}
+                onSort={handleEventsSort}
+                disabled={eventsLoading}
+              />
               <th>{activeCurrency}</th>
             </tr>
           </thead>
           <tbody>
-            {eventRows.length === 0 ? (
+            {eventsLoading ? (
+              <TableBodySkeleton rows={Math.min(pageSize, 8)} cols={5} />
+            ) : eventRows.length === 0 ? (
               <tr>
                 <td colSpan={5} className="empty">
                   No earnings yet. Connect Binance, OKX, or a Monad wallet, then
@@ -983,6 +1169,13 @@ export function Dashboard({
             </p>
           ) : null}
       </div>
+        </>
+      )}
+      {message && (showDataSkeleton || busy) ? (
+        <p className="msg" role="status">
+          {message}
+        </p>
+      ) : null}
     </div>
   );
 }

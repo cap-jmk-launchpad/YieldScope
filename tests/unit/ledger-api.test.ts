@@ -45,6 +45,8 @@ describe("GET /api/ledger pagination contract", () => {
       eventsMode: "page",
       eventsPage: 1,
       eventsPageSize: 25,
+      eventsSort: "earned_at",
+      eventsOrder: "desc",
     });
   });
 
@@ -70,6 +72,24 @@ describe("GET /api/ledger pagination contract", () => {
       eventsMode: "page",
       eventsPage: 3,
       eventsPageSize: 100,
+      eventsSort: "earned_at",
+      eventsOrder: "desc",
+    });
+  });
+
+  it("honors sort and order query params", async () => {
+    const { GET } = await import("../../web/src/app/api/ledger/route");
+    await GET(
+      new Request(
+        "http://localhost/api/ledger?eventsMode=page&sort=amount&order=asc",
+      ),
+    );
+    expect(loadDbLedger).toHaveBeenLastCalledWith("u1", {
+      eventsMode: "page",
+      eventsPage: 1,
+      eventsPageSize: 25,
+      eventsSort: "amount",
+      eventsOrder: "asc",
     });
   });
 
@@ -84,6 +104,8 @@ describe("GET /api/ledger pagination contract", () => {
       eventsMode: "page",
       eventsPage: 1,
       eventsPageSize: 500,
+      eventsSort: "earned_at",
+      eventsOrder: "desc",
     });
   });
 });

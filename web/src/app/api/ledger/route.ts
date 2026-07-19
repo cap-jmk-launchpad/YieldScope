@@ -5,6 +5,8 @@ import {
   loadDbLedger,
   LedgerPersistError,
   MAX_LEDGER_EVENTS_PAGE_SIZE,
+  parseLedgerEventsSort,
+  parseLedgerSortOrder,
   type LedgerEventsMode,
   type LoadDbLedgerOptions,
 } from "@/lib/ledger-db";
@@ -34,6 +36,8 @@ function parsePositiveInt(
  * Query:
  * - `eventsMode` / `view`: `page` (default) | `none` | `chart` | `all`
  * - `eventsPage` (1-based, default 1) + `eventsPageSize` (default 25, max 500)
+ * - `sort`: `earned_at` (default) | `amount` | `asset` | `source`
+ * - `order`: `desc` (default) | `asc`
  *
  * `page` — aggregates + one events table page (fast TTI).
  * `none` — aggregates/sources only.
@@ -59,6 +63,12 @@ export async function GET(req: Request) {
       url.searchParams.get("eventsPageSize"),
       DEFAULT_LEDGER_EVENTS_PAGE_SIZE,
       MAX_LEDGER_EVENTS_PAGE_SIZE,
+    );
+    options.eventsSort = parseLedgerEventsSort(
+      url.searchParams.get("sort") ?? url.searchParams.get("eventsSort"),
+    );
+    options.eventsOrder = parseLedgerSortOrder(
+      url.searchParams.get("order") ?? url.searchParams.get("eventsOrder"),
     );
   }
 

@@ -432,6 +432,46 @@
   letter-spacing: 0.06em;
 }
 
+.dash .sort-th {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.dash .sort-th:hover:not(:disabled) {
+  color: var(--paper);
+}
+
+.dash .sort-th:focus-visible {
+  outline: 1px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.dash .sort-th:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.dash .sort-th--active {
+  color: var(--mint);
+}
+
+.dash .sort-th-indicator {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
 .dash .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -444,6 +484,126 @@
   text-overflow: unset;
   overflow: visible;
   max-width: none;
+}
+
+/* Loading skeletons — ink panel, mint shimmer, reduced-motion safe */
+.dash-skel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.dash-skel-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.dash-skel-bone {
+  display: block;
+  height: 0.85rem;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--ink-elevated) 70%, var(--muted)) 0%,
+    color-mix(in oklab, var(--ink-elevated) 55%, var(--mint-dim)) 45%,
+    color-mix(in oklab, var(--ink-elevated) 70%, var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: dash-skel-shimmer 1.35s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.dash-skel-bone--lg {
+  height: 1.35rem;
+}
+
+.dash-skel-bone--block {
+  width: 100%;
+  border-radius: 0;
+}
+
+.dash-skel-sources {
+  opacity: 0.95;
+}
+
+.dash-skel-source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  animation: dash-skel-settle 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+.dash-skel-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 720px) {
+  .dash-skel-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dash-skel-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem 0;
+}
+
+.dash-skel-table-head,
+.dash-skel-table-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.dash-skel-table-row {
+  animation: dash-skel-settle 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+.dash-skel-range {
+  gap: 0.85rem;
+}
+
+.dash-skel-tr td {
+  vertical-align: middle;
+}
+
+@keyframes dash-skel-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@keyframes dash-skel-settle {
+  from {
+    opacity: 0.55;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-skel-bone {
+    animation: none;
+    background: color-mix(in oklab, var(--ink-elevated) 65%, var(--muted));
+  }
+
+  .dash-skel-source,
+  .dash-skel-table-row {
+    animation: none;
+  }
 }
 
 @media (max-width: 520px) {

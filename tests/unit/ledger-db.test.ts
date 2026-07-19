@@ -9,6 +9,27 @@ vi.mock("../../web/src/lib/supabase/admin", () => ({
   isAdminConfigured: () => isAdminConfigured(),
 }));
 
+/** Fluent .order().order().range() chain for paged earn_events queries. */
+function mockEarnEventsPageQuery(
+  range: (
+    fromIdx: number,
+    toIdx: number,
+  ) => Promise<{ data: unknown; error: unknown }>,
+) {
+  const chain: {
+    order: () => typeof chain;
+    range: typeof range;
+  } = {
+    order: () => chain,
+    range,
+  };
+  return {
+    select: () => ({
+      eq: () => chain,
+    }),
+  };
+}
+
 describe("ledger-db persistence", () => {
   const original = { ...process.env };
 
@@ -1640,6 +1661,7 @@ describe("ledger-db persistence", () => {
 
   it("loadDbLedger eventsMode=page returns one page and eventsTotal", async () => {
     const rangeCalls: Array<[number, number]> = [];
+    const orderCalls: Array<[string, { ascending: boolean }]> = [];
     from.mockImplementation((table: string) => {
       if (table === "profiles") {
         return {
@@ -1651,28 +1673,40 @@ describe("ledger-db persistence", () => {
         };
       }
       if (table === "earn_events") {
+        const chain: {
+          order: (
+            col: string,
+            opts: { ascending: boolean },
+          ) => typeof chain;
+          range: (
+            fromIdx: number,
+            toIdx: number,
+          ) => Promise<{ data: unknown[]; error: null }>;
+        } = {
+          order: (col, opts) => {
+            orderCalls.push([col, opts]);
+            return chain;
+          },
+          range: async (fromIdx, toIdx) => {
+            rangeCalls.push([fromIdx, toIdx]);
+            return {
+              data: [
+                {
+                  id: "binance:25",
+                  source: "binance",
+                  asset: "USDT",
+                  amount: "1",
+                  earned_at: "2024-07-01T00:00:00.000Z",
+                  raw_type: "REWARD",
+                },
+              ],
+              error: null,
+            };
+          },
+        };
         return {
           select: () => ({
-            eq: () => ({
-              order: () => ({
-                range: async (fromIdx: number, toIdx: number) => {
-                  rangeCalls.push([fromIdx, toIdx]);
-                  return {
-                    data: [
-                      {
-                        id: "binance:25",
-                        source: "binance",
-                        asset: "USDT",
-                        amount: "1",
-                        earned_at: "2024-07-01T00:00:00.000Z",
-                        raw_type: "REWARD",
-                      },
-                    ],
-                    error: null,
-                  };
-                },
-              }),
-            }),
+            eq: () => chain,
           }),
         };
       }
@@ -1733,10 +1767,122 @@ describe("ledger-db persistence", () => {
     expect(snap.eventsMode).toBe("page");
     expect(snap.eventsPage).toBe(2);
     expect(snap.eventsPageSize).toBe(25);
+    expect(snap.eventsSort).toBe("earned_at");
+    expect(snap.eventsOrder).toBe("desc");
     expect(snap.eventsTotal).toBe(100);
     expect(snap.events).toHaveLength(1);
     expect(snap.events[0].meta).toBeUndefined();
     expect(rangeCalls).toEqual([[25, 49]]);
+    expect(orderCalls).toEqual([
+      ["earned_at", { ascending: false }],
+      ["id", { ascending: true }],
+    ]);
+  });
+
+  it("loadDbLedger eventsMode=page honors amount sort with tiebreakers", async () => {
+    const orderCalls: Array<[string, { ascending: boolean }]> = [];
+    from.mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { id: "p1" }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "earn_events") {
+        const chain: {
+          order: (
+            col: string,
+            opts: { ascending: boolean },
+          ) => typeof chain;
+          range: (
+            fromIdx: number,
+            toIdx: number,
+          ) => Promise<{ data: unknown[]; error: null }>;
+        } = {
+          order: (col, opts) => {
+            orderCalls.push([col, opts]);
+            return chain;
+          },
+          range: async () => ({ data: [], error: null }),
+        };
+        return {
+          select: () => ({
+            eq: () => chain,
+          }),
+        };
+      }
+      if (table === "source_connections") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_source") {
+        return {
+          select: () => ({
+            eq: async () => ({ data: [], error: null }),
+          }),
+        };
+      }
+      if (table === "earn_aggregates_by_asset") {
+        return {
+          select: () => ({
+            eq: async () => ({
+              data: [
+                {
+                  asset: "ETH",
+                  source: "binance",
+                  event_count: 1,
+                  total_amount: 2,
+                },
+                {
+                  asset: "BTC",
+                  source: "okx",
+                  event_count: 1,
+                  total_amount: 5,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+      if (table === "wallet_connections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                limit: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const { loadDbLedger } = await import("../../web/src/lib/ledger-db");
+    const snap = await loadDbLedger("u1", {
+      eventsMode: "page",
+      eventsPage: 1,
+      eventsPageSize: 25,
+      eventsSort: "amount",
+      eventsOrder: "asc",
+    });
+    expect(snap.eventsSort).toBe("amount");
+    expect(snap.eventsOrder).toBe("asc");
+    expect(snap.aggregates.byAsset.map((a) => a.asset)).toEqual(["BTC", "ETH"]);
+    expect(orderCalls).toEqual([
+      ["amount", { ascending: true }],
+      ["earned_at", { ascending: false }],
+      ["id", { ascending: true }],
+    ]);
   });
 
   it("loadDbLedger eventsMode=none skips earn_events", async () => {
@@ -1991,18 +2137,10 @@ describe("ledger-db persistence", () => {
         };
       }
       if (table === "earn_events") {
-        return {
-          select: () => ({
-            eq: () => ({
-              order: () => ({
-                range: async () => ({
-                  data: null,
-                  error: { message: "page fail" },
-                }),
-              }),
-            }),
-          }),
-        };
+        return mockEarnEventsPageQuery(async () => ({
+          data: null,
+          error: { message: "page fail" },
+        }));
       }
       if (table === "source_connections") {
         return {
@@ -2063,22 +2201,14 @@ describe("ledger-db persistence", () => {
         };
       }
       if (table === "earn_events") {
-        return {
-          select: () => ({
-            eq: () => ({
-              order: () => ({
-                range: async (fromIdx: number, toIdx: number) => {
-                  expect(fromIdx).toBe(0);
-                  expect(toIdx).toBe(DEFAULT_LEDGER_EVENTS_PAGE_SIZE - 1);
-                  return {
-                    data: null,
-                    error: null,
-                  };
-                },
-              }),
-            }),
-          }),
-        };
+        return mockEarnEventsPageQuery(async (fromIdx, toIdx) => {
+          expect(fromIdx).toBe(0);
+          expect(toIdx).toBe(DEFAULT_LEDGER_EVENTS_PAGE_SIZE - 1);
+          return {
+            data: null,
+            error: null,
+          };
+        });
       }
       if (table === "source_connections") {
         return {
@@ -2137,30 +2267,22 @@ describe("ledger-db persistence", () => {
         };
       }
       if (table === "earn_events") {
-        return {
-          select: () => ({
-            eq: () => ({
-              order: () => ({
-                range: async (fromIdx: number, toIdx: number) => {
-                  expect(fromIdx).toBe(0);
-                  expect(toIdx).toBe(MAX_LEDGER_EVENTS_PAGE_SIZE - 1);
-                  return {
-                    data: [
-                      {
-                        source: "binance",
-                        asset: "USDT",
-                        amount: "1",
-                        earned_at: "2024-07-01T00:00:00.000Z",
-                        raw_type: null,
-                      },
-                    ],
-                    error: null,
-                  };
-                },
-              }),
-            }),
-          }),
-        };
+        return mockEarnEventsPageQuery(async (fromIdx, toIdx) => {
+          expect(fromIdx).toBe(0);
+          expect(toIdx).toBe(MAX_LEDGER_EVENTS_PAGE_SIZE - 1);
+          return {
+            data: [
+              {
+                source: "binance",
+                asset: "USDT",
+                amount: "1",
+                earned_at: "2024-07-01T00:00:00.000Z",
+                raw_type: null,
+              },
+            ],
+            error: null,
+          };
+        });
       }
       if (table === "source_connections") {
         return {
