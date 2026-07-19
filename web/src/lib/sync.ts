@@ -211,7 +211,9 @@ async function commitSource(
   plan?: Pick<CexPersistPlan, "persistMode" | "mergeFromMs" | "mergeToMs">,
 ): Promise<AdapterResult> {
   // Point-in-time sources always full-replace (no historical range).
+  // POINT_IN_TIME_SOURCES is empty today — true branch kept for API stability.
   const isPointInTime = isPointInTimeSource(source);
+  /* v8 ignore next -- isPointInTime true only when POINT_IN_TIME_SOURCES is non-empty */
   const persistMode = isPointInTime
     ? "replace"
     : (plan?.persistMode ?? "replace");
@@ -413,9 +415,14 @@ export async function syncMonadStake(
     }
     const rpcUrl = defaultMonadRpcUrl(process.env.MONAD_RPC_URL);
     const client = createPublicClient({ transport: http(rpcUrl) });
-    const endMs = plan.opts.allTime
-      ? Date.now()
-      : (plan.opts.endMs ?? null);
+    // resolveCexSyncPlan always sets endMs when !allTime; ?? null is defensive.
+    let endMs: number | null;
+    if (plan.opts.allTime) {
+      endMs = Date.now();
+    } else {
+      /* v8 ignore next -- endMs is always set for custom/incremental plans */
+      endMs = plan.opts.endMs ?? null;
+    }
     const scan = await scanMonadStake(address, monadRpcFromClient(client), {
       startMs: plan.opts.startMs ?? null,
       endMs,

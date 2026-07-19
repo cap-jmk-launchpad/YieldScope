@@ -2,12 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CLAIM_REWARDS_TOPIC0,
   DEFAULT_MONAD_ARCHIVE_RPC_URL,
+  FALLBACK_MONAD_ARCHIVE_RPC_URL,
+  MonadClaimHistoryError,
   claimRewardsLogsToEarnEvents,
+  createHttpJsonRpc,
   decodeClaimRewardsLog,
+  envInt,
   fetchClaimRewardsViaArchiveRpc,
   fetchClaimRewardsViaExplorer,
   fetchClaimRewardsViaWideGetLogs,
   fetchMonadClaimedRewards,
+  resolveArchiveRpcUrl,
+  resolveClaimLogBlockRange,
   resolveExplorerConfig,
   padAddressTopic,
   type RpcLog,
@@ -211,6 +217,586 @@ describe("Monad ClaimRewards history", () => {
       else process.env.MONAD_EXPLORER_API_KEY = prevM;
       if (prevE === undefined) delete process.env.ETHERSCAN_API_KEY;
       else process.env.ETHERSCAN_API_KEY = prevE;
+    }
+  });
+
+  it("decodeClaimRewardsLog rejects malformed / removed / zero-amount logs", () => {
+    expect(decodeClaimRewardsLog({ topics: [], data: "0x" })).toBeNull();
+    expect(
+      decodeClaimRewardsLog({
+        topics: ["0xdead", "0x1", padAddressTopic(DELEGATOR)],
+        data: "0x01",
+      }),
+    ).toBeNull();
+    expect(decodeClaimRewardsLog({ ...sampleClaimLog(), removed: true })).toBeNull();
+    expect(
+      decodeClaimRewardsLog({
+        ...sampleClaimLog(),
+        topics: [CLAIM_REWARDS_TOPIC0, "0x10", "0x12"],
+      }),
+    ).toBeNull();
+    expect(
+      decodeClaimRewardsLog({ ...sampleClaimLog(), data: "0x" }),
+    ).toBeNull();
+    expect(
+      decodeClaimRewardsLog(sampleClaimLog({ amountWei: 0n })),
+    ).toBeNull();
+    expect(new MonadClaimHistoryError("x").name).toBe("MonadClaimHistoryError");
+  });
+
+  it("claimRewardsLogsToEarnEvents covers filters, duplicates, and missing timestamps", () => {
+    const noTs: RpcLog = {
+      ...sampleClaimLog({ tx: "0xaaa" }),
+      blockTimestamp: undefined,
+    };
+    const badTs: RpcLog = {
+      ...sampleClaimLog({ tx: "0xbbb" }),
+      blockTimestamp: "not-hex" as `0x${string}`,
+    };
+    const late = sampleClaimLog({ tx: "0xccc", ts: 2_000_000_000 });
+    const zeroVal = sampleClaimLog({ tx: "0xddd", validatorId: 0n });
+    const noTx = { ...sampleClaimLog(), transactionHash: undefined };
+    const dup = sampleClaimLog({ tx: "0xaaa" });
+
+    const events = claimRewardsLogsToEarnEvents(
+      DELEGATOR,
+      [noTs, badTs, late, zeroVal, noTx, dup, sampleClaimLog({ tx: "0xeee", ts: 1_700_000_000 })],
+      { startMs: 1_600_000_000_000, endMs: 1_800_000_000_000 },
+    );
+    expect(events.some((e) => e.meta?.txHash === "0xaaa")).toBe(true);
+    expect(events.some((e) => e.meta?.txHash === "0xbbb")).toBe(true);
+    expect(events.some((e) => e.meta?.txHash === "0xccc")).toBe(false);
+    expect(events.some((e) => e.meta?.txHash === "0xddd")).toBe(false);
+    expect(events.filter((e) => e.meta?.txHash === "0xaaa")).toHaveLength(1);
+  });
+
+  it("envInt / resolveArchiveRpcUrl / resolveExplorerConfig edges", () => {
+    const prev = {
+      bad: process.env.MONAD_CLAIM_HISTORY_MAX_BLOCKS,
+      archive: process.env.MONAD_ARCHIVE_RPC_URL,
+      explorer: process.env.MONAD_EXPLORER_API_KEY,
+      etherscan: process.env.ETHERSCAN_API_KEY,
+      url: process.env.MONAD_EXPLORER_API_URL,
+      chain: process.env.MONAD_EXPLORER_CHAIN_ID,
+    };
+    try {
+      delete process.env.MONAD_CLAIM_HISTORY_MAX_BLOCKS;
+      expect(envInt("MONAD_CLAIM_HISTORY_MAX_BLOCKS", 42)).toBe(42);
+      process.env.MONAD_CLAIM_HISTORY_MAX_BLOCKS = "not-a-number";
+      expect(envInt("MONAD_CLAIM_HISTORY_MAX_BLOCKS", 42)).toBe(42);
+      process.env.MONAD_CLAIM_HISTORY_MAX_BLOCKS = "99";
+      expect(envInt("MONAD_CLAIM_HISTORY_MAX_BLOCKS", 42)).toBe(99);
+
+      delete process.env.MONAD_ARCHIVE_RPC_URL;
+      expect(resolveArchiveRpcUrl()).toBe(DEFAULT_MONAD_ARCHIVE_RPC_URL);
+      expect(resolveArchiveRpcUrl(" https://custom.rpc ")).toBe("https://custom.rpc");
+      process.env.MONAD_ARCHIVE_RPC_URL = "https://env.rpc";
+      expect(resolveArchiveRpcUrl()).toBe("https://env.rpc");
+
+      delete process.env.MONAD_EXPLORER_API_KEY;
+      delete process.env.ETHERSCAN_API_KEY;
+      expect(resolveExplorerConfig()).toBeNull();
+      expect(
+        resolveExplorerConfig({
+          apiKey: "k",
+          apiUrl: "https://custom.explorer/api",
+          chainId: 999,
+        }),
+      ).toEqual({
+        apiKey: "k",
+        apiUrl: "https://custom.explorer/api",
+        chainId: 999,
+      });
+      process.env.MONAD_EXPLORER_API_URL = "https://env.explorer/api";
+      process.env.MONAD_EXPLORER_CHAIN_ID = "200";
+      expect(resolveExplorerConfig({ apiKey: "k" })?.apiUrl).toBe(
+        "https://env.explorer/api",
+      );
+      expect(resolveExplorerConfig({ apiKey: "k" })?.chainId).toBe(200);
+    } finally {
+      for (const [k, v] of Object.entries(prev)) {
+        const envKey = (
+          {
+            bad: "MONAD_CLAIM_HISTORY_MAX_BLOCKS",
+            archive: "MONAD_ARCHIVE_RPC_URL",
+            explorer: "MONAD_EXPLORER_API_KEY",
+            etherscan: "ETHERSCAN_API_KEY",
+            url: "MONAD_EXPLORER_API_URL",
+            chain: "MONAD_EXPLORER_CHAIN_ID",
+          } as const
+        )[k as keyof typeof prev];
+        if (v === undefined) delete process.env[envKey];
+        else process.env[envKey] = v;
+      }
+    }
+  });
+
+  it("createHttpJsonRpc surfaces HTTP and RPC errors", async () => {
+    const ok = createHttpJsonRpc("https://rpc.example", (async () => ({
+      ok: true,
+      json: async () => ({ result: "0x1" }),
+    })) as unknown as typeof fetch);
+    await expect(ok("eth_blockNumber", [])).resolves.toBe("0x1");
+
+    const httpFail = createHttpJsonRpc("https://rpc.example", (async () => ({
+      ok: false,
+      status: 503,
+    })) as unknown as typeof fetch);
+    await expect(httpFail("eth_blockNumber", [])).rejects.toThrow(/HTTP 503/);
+
+    const rpcFail = createHttpJsonRpc("https://rpc.example", (async () => ({
+      ok: true,
+      json: async () => ({ error: { message: "too wide" } }),
+    })) as unknown as typeof fetch);
+    await expect(rpcFail("eth_getLogs", [])).rejects.toThrow(/too wide/);
+  });
+
+  it("resolveClaimLogBlockRange covers startMs, uncapped, and maxBlocks clamp", async () => {
+    const rpc = vi.fn(async (method: string) => {
+      if (method === "eth_blockNumber") return "0x2710"; // 10000
+      if (method === "eth_getBlockByNumber") {
+        return { timestamp: "0x65a00000" };
+      }
+      throw new Error(method);
+    });
+
+    const withStart = await resolveClaimLogBlockRange(rpc, {
+      startMs: Date.parse("2024-01-01T00:00:00.000Z"),
+      maxBlocks: 500,
+    });
+    expect(withStart.fromBlock).toBeGreaterThanOrEqual(0n);
+    expect(withStart.toBlock).toBe(10000n);
+
+    const missingTs = vi.fn(async (method: string) => {
+      if (method === "eth_blockNumber") return "0x64";
+      if (method === "eth_getBlockByNumber") return {};
+      throw new Error(method);
+    });
+    const fallbackTs = await resolveClaimLogBlockRange(missingTs, {
+      startMs: Date.now() - 400_000,
+      maxBlocks: 10_000,
+    });
+    expect(fallbackTs.toBlock).toBe(100n);
+
+    const uncapped = await resolveClaimLogBlockRange(rpc, { uncapped: true });
+    expect(uncapped.fromBlock).toBe(0n);
+    expect(uncapped.capped).toBe(false);
+
+    const capped = await resolveClaimLogBlockRange(rpc, { maxBlocks: 100 });
+    expect(capped.capped).toBe(true);
+    expect(capped.fromBlock).toBe(9900n);
+
+    const clamped = await resolveClaimLogBlockRange(rpc, {
+      fromBlock: 0n,
+      maxBlocks: 50,
+    });
+    expect(clamped.fromBlock).toBe(9950n);
+    expect(clamped.capped).toBe(true);
+
+    const toLatest = await resolveClaimLogBlockRange(rpc, {
+      fromBlock: 1n,
+      toBlock: 99999n,
+    });
+    expect(toLatest.toBlock).toBe(10000n);
+  });
+
+  it("wide getLogs returns empty when range inverted; non-array logs become []", async () => {
+    const rpc = vi.fn(async (method: string) => {
+      if (method === "eth_blockNumber") return "0x10";
+      if (method === "eth_getLogs") return null;
+      throw new Error(method);
+    });
+    const empty = await fetchClaimRewardsViaWideGetLogs(DELEGATOR, rpc, {
+      fromBlock: 100n,
+      toBlock: 10n,
+    });
+    expect(empty.events).toEqual([]);
+
+    const nullLogs = await fetchClaimRewardsViaWideGetLogs(DELEGATOR, rpc, {
+      fromBlock: 0n,
+      toBlock: 10n,
+    });
+    expect(nullLogs.events).toEqual([]);
+  });
+
+  it("chunked archive covers preferWide=false, partial failures, and all-fail", async () => {
+    const rpc = vi.fn(async (method: string, params: unknown[]) => {
+      if (method === "eth_blockNumber") return "0x3e8";
+      if (method === "eth_getLogs") {
+        const filter = params[0] as { fromBlock: string };
+        if (filter.fromBlock === "0x0") return [sampleClaimLog()];
+        throw new Error("chunk fail");
+      }
+      throw new Error(method);
+    });
+    const partial = await fetchClaimRewardsViaArchiveRpc(DELEGATOR, rpc, {
+      preferWide: false,
+      fromBlock: 0n,
+      toBlock: 1000n,
+      chunkBlocks: 500,
+      concurrency: 2,
+    });
+    expect(partial.mode).toBe("chunked");
+    expect(partial.events.length).toBeGreaterThanOrEqual(1);
+    expect(partial.complete).toBe(false);
+
+    const allFail = vi.fn(async (method: string) => {
+      if (method === "eth_blockNumber") return "0x64";
+      if (method === "eth_getLogs") throw new Error("down");
+      throw new Error(method);
+    });
+    await expect(
+      fetchClaimRewardsViaArchiveRpc(DELEGATOR, allFail, {
+        preferWide: false,
+        fromBlock: 0n,
+        toBlock: 100n,
+        chunkBlocks: 50,
+        concurrency: 1,
+      }),
+    ).rejects.toThrow(/All chunked eth_getLogs/);
+
+    const inverted = vi.fn(async (method: string) => {
+      if (method === "eth_blockNumber") return "0x10";
+      throw new Error(method);
+    });
+    const empty = await fetchClaimRewardsViaArchiveRpc(DELEGATOR, inverted, {
+      preferWide: false,
+      fromBlock: 50n,
+      toBlock: 10n,
+    });
+    expect(empty.events).toEqual([]);
+  });
+
+  it("explorer soft-fails: HTTP error, no records, and non-string status0", async () => {
+    await expect(
+      fetchClaimRewardsViaExplorer(DELEGATOR, {
+        apiUrl: "https://api.etherscan.io/v2/api",
+        apiKey: "k",
+        chainId: 143,
+        toBlock: 1000,
+        fetchImpl: (async () => ({
+          ok: false,
+          status: 429,
+        })) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/HTTP 429/);
+
+    const noRecords = await fetchClaimRewardsViaExplorer(DELEGATOR, {
+      apiUrl: "https://api.etherscan.io/v2/api",
+      apiKey: "k",
+      chainId: 143,
+      fetchImpl: (async () => ({
+        ok: true,
+        json: async () => ({
+          status: "0",
+          result: "No records found",
+        }),
+      })) as unknown as typeof fetch,
+    });
+    expect(noRecords).toEqual([]);
+
+    await expect(
+      fetchClaimRewardsViaExplorer(DELEGATOR, {
+        apiUrl: "https://api.etherscan.io/v2/api",
+        apiKey: "k",
+        chainId: 143,
+        fetchImpl: (async () => ({
+          ok: true,
+          json: async () => ({
+            status: "0",
+            message: "NOTOK",
+            result: "Max rate limit reached",
+          }),
+        })) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/Max rate limit/);
+
+    await expect(
+      fetchClaimRewardsViaExplorer(DELEGATOR, {
+        apiUrl: "https://api.etherscan.io/v2/api",
+        apiKey: "k",
+        chainId: 143,
+        fetchImpl: (async () => ({
+          ok: true,
+          json: async () => ({
+            status: "0",
+            message: "fallback-msg",
+            result: [{ topics: [] }],
+          }),
+        })) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/fallback-msg/);
+  });
+
+  it("fetchMonadClaimedRewards prefers explorer then soft-degrades notes", async () => {
+    const prevM = process.env.MONAD_EXPLORER_API_KEY;
+    const prevE = process.env.ETHERSCAN_API_KEY;
+    try {
+      process.env.MONAD_EXPLORER_API_KEY = "test-key";
+      delete process.env.ETHERSCAN_API_KEY;
+
+      const explorerOk = await fetchMonadClaimedRewards(DELEGATOR, {
+        fetchImpl: (async () => ({
+          ok: true,
+          json: async () => ({
+            status: "1",
+            result: [sampleClaimLog()],
+          }),
+        })) as unknown as typeof fetch,
+      });
+      expect(explorerOk.source).toBe("explorer");
+      expect(explorerOk.complete).toBe(true);
+      expect(explorerOk.events).toHaveLength(1);
+
+      const explorerFailThenArchive = await fetchMonadClaimedRewards(DELEGATOR, {
+        fetchImpl: (async () => ({
+          ok: false,
+          status: 500,
+        })) as unknown as typeof fetch,
+        jsonRpc: async (method: string) => {
+          if (method === "eth_blockNumber") return "0x100";
+          if (method === "eth_getLogs") return [sampleClaimLog()];
+          throw new Error(method);
+        },
+      });
+      expect(explorerFailThenArchive.source).toBe("archive_rpc");
+      expect(explorerFailThenArchive.info).toMatch(/Explorer claim history unavailable/);
+      expect(explorerFailThenArchive.info).toMatch(/full ClaimRewards|sync window/i);
+
+      let getLogsCalls = 0;
+      const chunked = await fetchMonadClaimedRewards(DELEGATOR, {
+        preferArchive: true,
+        jsonRpc: async (method: string) => {
+          if (method === "eth_blockNumber") return "0x64"; // 100
+          if (method === "eth_getLogs") {
+            getLogsCalls += 1;
+            // First call is wide single-shot; subsequent are chunked fallback.
+            if (getLogsCalls === 1) {
+              throw new Error("Block range is too large");
+            }
+            return [sampleClaimLog()];
+          }
+          throw new Error(method);
+        },
+      });
+      expect(chunked.source).toBe("archive_rpc");
+      expect(getLogsCalls).toBeGreaterThan(1);
+      expect(chunked.info).toMatch(/chunked archive RPC/i);
+
+      const windowed = await fetchMonadClaimedRewards(DELEGATOR, {
+        preferArchive: true,
+        startMs: Date.parse("2024-06-01T00:00:00.000Z"),
+        jsonRpc: async (method: string) => {
+          if (method === "eth_blockNumber") return "0x1000";
+          if (method === "eth_getBlockByNumber") {
+            return { timestamp: "0x65a00000" };
+          }
+          if (method === "eth_getLogs") return [sampleClaimLog()];
+          throw new Error(method);
+        },
+      });
+      expect(windowed.source).toBe("archive_rpc");
+      expect(windowed.info).toMatch(/sync window/i);
+
+      const softNonError = await fetchMonadClaimedRewards(DELEGATOR, {
+        preferArchive: true,
+        jsonRpc: async () => {
+          throw "string-boom";
+        },
+      });
+      expect(softNonError.source).toBe("none");
+      expect(softNonError.info).toMatch(/archive RPC failed|pending unclaimed/i);
+    } finally {
+      if (prevM === undefined) delete process.env.MONAD_EXPLORER_API_KEY;
+      else process.env.MONAD_EXPLORER_API_KEY = prevM;
+      if (prevE === undefined) delete process.env.ETHERSCAN_API_KEY;
+      else process.env.ETHERSCAN_API_KEY = prevE;
+    }
+  });
+
+  it("fetchMonadClaimedRewards tries fallback archive URL without injected rpc", async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      return {
+        ok: true,
+        json: async () => ({
+          error: { message: `fail ${url}` },
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    const result = await fetchMonadClaimedRewards(DELEGATOR, {
+      preferArchive: true,
+      fetchImpl,
+    });
+    expect(result.source).toBe("none");
+    expect(urls.some((u) => u.includes("rpc1.monad.xyz"))).toBe(true);
+    expect(urls.some((u) => u.includes("rpc3.monad.xyz"))).toBe(true);
+    expect(FALLBACK_MONAD_ARCHIVE_RPC_URL).toContain("rpc3");
+  });
+
+  it("covers logSortKey defaults, negative fromBlock, and explorer edge bodies", async () => {
+    const sparse: RpcLog = {
+      topics: sampleClaimLog().topics,
+      data: sampleClaimLog().data,
+      // omit blockNumber / logIndex / transactionHash for sort-key defaults
+    };
+    const withTx: RpcLog = {
+      ...sampleClaimLog({ tx: "0xabc" }),
+      logIndex: undefined,
+    };
+    // Sparse log has no tx → filtered; withTx maps with default logIndex.
+    const mapped = claimRewardsLogsToEarnEvents(DELEGATOR, [sparse, withTx]);
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0]!.id).toContain(":0x0");
+
+    // Force chunked path to sort sparse logs (exercises logSortKey ?? defaults).
+    const sortRpc = vi.fn(async (method: string) => {
+      if (method === "eth_blockNumber") return "0x2";
+      if (method === "eth_getLogs") {
+        return [
+          { topics: sampleClaimLog().topics, data: sampleClaimLog().data },
+          sampleClaimLog({ tx: "0x111" }),
+        ];
+      }
+      throw new Error(method);
+    });
+    const sorted = await fetchClaimRewardsViaArchiveRpc(DELEGATOR, sortRpc, {
+      preferWide: false,
+      fromBlock: 0n,
+      toBlock: 2n,
+      chunkBlocks: 10,
+    });
+    expect(sorted.mode).toBe("chunked");
+
+    const negRpc = vi.fn(async (method: string) => {
+      if (method === "eth_blockNumber") return "0x64";
+      throw new Error(method);
+    });
+    const neg = await resolveClaimLogBlockRange(negRpc, {
+      fromBlock: -5n as bigint,
+      toBlock: 10n,
+    });
+    expect(neg.fromBlock).toBe(0n);
+
+    const nonArrayChunk = vi.fn(async (method: string) => {
+      if (method === "eth_blockNumber") return "0x10";
+      if (method === "eth_getLogs") return { not: "array" };
+      throw new Error(method);
+    });
+    const coerced = await fetchClaimRewardsViaArchiveRpc(DELEGATOR, nonArrayChunk, {
+      preferWide: false,
+      fromBlock: 0n,
+      toBlock: 10n,
+      chunkBlocks: 10,
+    });
+    expect(coerced.events).toEqual([]);
+
+    await expect(
+      fetchClaimRewardsViaExplorer(DELEGATOR, {
+        apiUrl: "https://api.etherscan.io/v2/api",
+        apiKey: "k",
+        chainId: 143,
+        fetchImpl: (async () => ({
+          ok: true,
+          json: async () => ({
+            status: "0",
+            result: [{ topics: [] }],
+          }),
+        })) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/Monad explorer getLogs failed/);
+
+    const nonArrayOk = await fetchClaimRewardsViaExplorer(DELEGATOR, {
+      apiUrl: "https://api.etherscan.io/v2/api",
+      apiKey: "k",
+      chainId: 143,
+      fetchImpl: (async () => ({
+        ok: true,
+        json: async () => ({
+          status: "1",
+          result: "not-an-array",
+        }),
+      })) as unknown as typeof fetch,
+    });
+    expect(nonArrayOk).toEqual([]);
+
+    const prevFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ result: "0x1" }),
+      })) as unknown as typeof fetch;
+      const rpc = createHttpJsonRpc("https://rpc.example");
+      await expect(rpc("eth_blockNumber", [])).resolves.toBe("0x1");
+
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("etherscan") || url.includes("api")) {
+          return {
+            ok: true,
+            json: async () => ({
+              status: "1",
+              result: [sampleClaimLog()],
+            }),
+          };
+        }
+        return {
+          ok: true,
+          json: async () => ({ result: "0x64" }),
+        };
+      }) as unknown as typeof fetch;
+
+      // Explorer success via default fetchImpl (no opts.fetchImpl).
+      const viaDefaultFetch = await fetchClaimRewardsViaExplorer(DELEGATOR, {
+        apiUrl: "https://api.etherscan.io/v2/api",
+        apiKey: "k",
+        chainId: 143,
+      });
+      expect(viaDefaultFetch).toHaveLength(1);
+    } finally {
+      globalThis.fetch = prevFetch;
+    }
+
+    const prevKey = process.env.MONAD_EXPLORER_API_KEY;
+    try {
+      process.env.MONAD_EXPLORER_API_KEY = "k";
+      const nonErrorExplorer = await fetchMonadClaimedRewards(DELEGATOR, {
+        fetchImpl: (async () => {
+          throw "explorer-string-fail";
+        }) as unknown as typeof fetch,
+        jsonRpc: async (method: string) => {
+          if (method === "eth_blockNumber") return "0x10";
+          if (method === "eth_getLogs") return [];
+          throw new Error(method);
+        },
+      });
+      expect(nonErrorExplorer.info).toMatch(
+        /Explorer claim history unavailable\./,
+      );
+      expect(nonErrorExplorer.source).toBe("archive_rpc");
+    } finally {
+      if (prevKey === undefined) delete process.env.MONAD_EXPLORER_API_KEY;
+      else process.env.MONAD_EXPLORER_API_KEY = prevKey;
+    }
+
+    // tryArchiveClaimHistory default fetchImpl (no opts.fetchImpl / jsonRpc).
+    const prevFetch2 = globalThis.fetch;
+    try {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ error: { message: "rpc down" } }),
+      })) as unknown as typeof fetch;
+      const soft = await fetchMonadClaimedRewards(DELEGATOR, {
+        preferArchive: true,
+        archiveRpcUrl: "https://only-one.rpc",
+      });
+      expect(soft.source).toBe("none");
+      expect(soft.info).toMatch(/rpc down/);
+    } finally {
+      globalThis.fetch = prevFetch2;
     }
   });
 });

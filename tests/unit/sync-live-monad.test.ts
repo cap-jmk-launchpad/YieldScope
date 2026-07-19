@@ -84,8 +84,12 @@ describe("syncMonadStake live path", () => {
 
     scanMonadStake.mockResolvedValueOnce({
       events: [],
+      pendingEvents: [],
       info: "No Monad stake found",
       states: [],
+      claimHistorySource: "archive_rpc",
+      claimHistoryComplete: true,
+      claimHistoryOk: true,
     });
     const ok = await syncMonadStake(addr, { userId: "u1" });
     expect(ok.status).toBe("ok");
@@ -99,5 +103,115 @@ describe("syncMonadStake live path", () => {
     const err = await syncMonadStake(addr, { userId: "u1" });
     expect(err.status).toBe("error");
     expect(err.error).toMatch(/Monad staking rewards|rpc boom/i);
+  });
+
+  it("explorer / complete history uses full persist plan", async () => {
+    const { syncMonadStake } = await import("../../web/src/lib/sync");
+    const addr = "0x0000000000000000000000000000000000000001" as const;
+    const claimed = {
+      id: "monad_stake:x:claim:0xabc:0x0",
+      source: "monad_stake" as const,
+      asset: "MON",
+      amount: "1",
+      earnedAt: "2024-06-01T00:00:00.000Z",
+      rawType: "CLAIMED_STAKING_REWARDS",
+    };
+
+    scanMonadStake.mockResolvedValueOnce({
+      events: [claimed],
+      pendingEvents: [],
+      states: [],
+      claimHistorySource: "explorer",
+      claimHistoryComplete: true,
+      claimHistoryOk: true,
+      info: "from explorer",
+    });
+    const explorer = await syncMonadStake(addr, { userId: "u1" });
+    expect(explorer.status).toBe("ok");
+    expect(explorer.events).toHaveLength(1);
+    expect(persistSourceSync).toHaveBeenCalledWith(
+      expect.objectContaining({ persistMode: "replace" }),
+    );
+  });
+
+  it("incomplete archive soft-upserts; none keeps pending only", async () => {
+    const { syncMonadStake } = await import("../../web/src/lib/sync");
+    const addr = "0x0000000000000000000000000000000000000001" as const;
+    const pending = {
+      id: "monad_stake:x:pending:1",
+      source: "monad_stake" as const,
+      asset: "MON",
+      amount: "2.5",
+      earnedAt: "2024-07-01T00:00:00.000Z",
+      rawType: "PENDING_STAKING_REWARDS",
+    };
+    const claimed = {
+      id: "monad_stake:x:claim:0xdef:0x0",
+      source: "monad_stake" as const,
+      asset: "MON",
+      amount: "1",
+      earnedAt: "2024-06-01T00:00:00.000Z",
+      rawType: "CLAIMED_STAKING_REWARDS",
+    };
+
+    getSourceHighWaterMs.mockResolvedValueOnce(Date.parse("2024-06-15T00:00:00.000Z"));
+    scanMonadStake.mockResolvedValueOnce({
+      events: [claimed, pending],
+      pendingEvents: [pending],
+      states: [],
+      claimHistorySource: "archive_rpc",
+      claimHistoryComplete: false,
+      claimHistoryOk: true,
+      info: "partial chunked",
+    });
+    const soft = await syncMonadStake(addr, { userId: "u1" });
+    expect(soft.status).toBe("ok");
+    expect(persistSourceSync).toHaveBeenCalledWith(
+      expect.objectContaining({ persistMode: "upsert" }),
+    );
+
+    scanMonadStake.mockResolvedValueOnce({
+      events: [claimed, pending],
+      pendingEvents: [pending],
+      states: [],
+      claimHistorySource: "none",
+      claimHistoryComplete: false,
+      claimHistoryOk: false,
+      info: "history unavailable",
+    });
+    const none = await syncMonadStake(addr, {
+      userId: "u1",
+      window: {
+        mode: "custom",
+        fromMs: Date.parse("2024-01-01T00:00:00.000Z"),
+        toMs: Date.parse("2024-12-31T23:59:59.999Z"),
+      },
+    });
+    expect(none.status).toBe("ok");
+    expect(none.events).toEqual([pending]);
+  });
+
+  it("incremental plan passes endMs into scanMonadStake", async () => {
+    const { syncMonadStake } = await import("../../web/src/lib/sync");
+    const addr = "0x0000000000000000000000000000000000000001" as const;
+    const highWater = Date.now() - 86_400_000;
+    getSourceHighWaterMs.mockResolvedValueOnce(highWater);
+    scanMonadStake.mockResolvedValueOnce({
+      events: [],
+      pendingEvents: [],
+      states: [],
+      claimHistorySource: "archive_rpc",
+      claimHistoryComplete: true,
+      claimHistoryOk: true,
+    });
+    await syncMonadStake(addr, { userId: "u1" });
+    expect(scanMonadStake).toHaveBeenCalledWith(
+      addr,
+      expect.any(Function),
+      expect.objectContaining({
+        startMs: expect.any(Number),
+        endMs: expect.any(Number),
+      }),
+    );
   });
 });

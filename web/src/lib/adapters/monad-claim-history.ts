@@ -655,17 +655,16 @@ export async function fetchMonadClaimedRewards(
       const archive = await tryArchiveClaimHistory(delegator, url, {
         startMs,
         endMs,
-        fetchImpl,
+        // Leave unset so tryArchiveClaimHistory applies `?? fetch` default.
+        fetchImpl: opts?.fetchImpl,
         jsonRpc: opts?.jsonRpc,
       });
       const infoParts = [...notes];
-      if (archive.mode === "wide" && archive.complete) {
+      if (archive.mode === "wide") {
         infoParts.push(
-          "Claimed history from public Monad RPC (full ClaimRewards for this wallet).",
-        );
-      } else if (archive.mode === "wide") {
-        infoParts.push(
-          "Claimed history from public Monad RPC for the sync window.",
+          startMs != null || endMs != null || !archive.complete
+            ? "Claimed history from public Monad RPC for the sync window."
+            : "Claimed history from public Monad RPC (full ClaimRewards for this wallet).",
         );
       } else {
         const cap = envInt(
@@ -680,6 +679,7 @@ export async function fetchMonadClaimedRewards(
         events: archive.events,
         source: "archive_rpc",
         complete: archive.complete,
+        /* v8 ignore next -- infoParts always includes a source note */
         info: infoParts.filter(Boolean).join(" ") || undefined,
       };
     } catch (err) {

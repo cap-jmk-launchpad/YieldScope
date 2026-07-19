@@ -152,6 +152,8 @@ export function syncRangesForSource(
   source: string,
   range: SyncRange,
 ): SyncRange[] {
+  // POINT_IN_TIME_SOURCES is empty (Monad now has ClaimRewards history).
+  /* v8 ignore next -- kept for API stability when the list is non-empty again */
   if (isPointInTimeSource(source)) return [range];
   if (range.mode !== "custom" || !range.from || !range.to) return [range];
   const from = normalizeDateInput(range.from);
