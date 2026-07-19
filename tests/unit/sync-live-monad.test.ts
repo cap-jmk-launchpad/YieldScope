@@ -3,7 +3,7 @@ import { monadRpcFromClient } from "../../web/src/lib/sync";
 
 const persistSourceSync = vi.fn();
 const getSourceHighWaterMs = vi.fn();
-const fetchMonadStakeEarnEvents = vi.fn();
+const scanMonadStake = vi.fn();
 const call = vi.fn();
 
 vi.mock("../../web/src/lib/ledger-db", () => {
@@ -36,8 +36,7 @@ vi.mock("../../web/src/lib/adapters/monad-stake", async () => {
   >("../../web/src/lib/adapters/monad-stake");
   return {
     ...actual,
-    fetchMonadStakeEarnEvents: (...args: unknown[]) =>
-      fetchMonadStakeEarnEvents(...args),
+    scanMonadStake: (...args: unknown[]) => scanMonadStake(...args),
   };
 });
 
@@ -83,12 +82,20 @@ describe("syncMonadStake live path", () => {
     const { syncMonadStake } = await import("../../web/src/lib/sync");
     const addr = "0x0000000000000000000000000000000000000001" as const;
 
-    fetchMonadStakeEarnEvents.mockResolvedValueOnce([]);
+    scanMonadStake.mockResolvedValueOnce({
+      events: [],
+      info: "No Monad stake found",
+      states: [],
+    });
     const ok = await syncMonadStake(addr, { userId: "u1" });
     expect(ok.status).toBe("ok");
-    expect(fetchMonadStakeEarnEvents).toHaveBeenCalled();
+    expect(ok.info).toMatch(/No Monad stake/);
+    expect(scanMonadStake).toHaveBeenCalled();
+    expect(persistSourceSync).toHaveBeenCalledWith(
+      expect.objectContaining({ info: expect.stringMatching(/No Monad stake/) }),
+    );
 
-    fetchMonadStakeEarnEvents.mockRejectedValueOnce(new Error("rpc boom"));
+    scanMonadStake.mockRejectedValueOnce(new Error("rpc boom"));
     const err = await syncMonadStake(addr, { userId: "u1" });
     expect(err.status).toBe("error");
     expect(err.error).toMatch(/Monad staking rewards|rpc boom/i);

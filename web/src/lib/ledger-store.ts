@@ -3,6 +3,7 @@ import type { EarnEvent, SourceId, SourceStatus } from "./adapters/types";
 export interface SourceState {
   status: SourceStatus;
   error?: string;
+  info?: string;
   lastSyncedAt?: string;
   eventCount: number;
 }
@@ -39,7 +40,12 @@ export function getLedger(): LedgerSnapshot {
 
 export function replaceSourceEvents(
   source: SourceId,
-  result: { status: SourceStatus; events: EarnEvent[]; error?: string },
+  result: {
+    status: SourceStatus;
+    events: EarnEvent[];
+    error?: string;
+    info?: string;
+  },
   opts?: {
     mergeFromMs?: number | null;
     mergeToMs?: number | null;
@@ -78,6 +84,7 @@ export function replaceSourceEvents(
     status: result.status,
     // Never keep a previous error string after an ok / not_connected sync.
     error: result.status === "error" ? result.error : undefined,
+    info: result.status === "ok" ? result.info : undefined,
     lastSyncedAt: new Date().toISOString(),
     eventCount: sourceCount,
   };

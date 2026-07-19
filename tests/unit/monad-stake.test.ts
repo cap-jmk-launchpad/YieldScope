@@ -4,18 +4,33 @@ import { fileURLToPath } from "node:url";
 import { encodeAbiParameters } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import {
+  decodeGetDelegationsResult,
   decodeGetDelegatorResult,
   delegatorStatesToEarnEvents,
   encodeGetDelegatorCall,
   fetchMonadStakeEarnEvents,
   formatMon,
+  monadStakeEmptyInfo,
   MonadStakeAdapterError,
+  scanMonadStake,
 } from "../../web/src/lib/adapters/monad-stake";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../fixtures/monad");
 const fixture = JSON.parse(
   readFileSync(join(root, "getDelegator-sample.json"), "utf8"),
 );
+
+/** Official wire order: (bool isDone, uint64 nextValId, uint64[] valIds) */
+function encodeDelegationsPage(
+  done: boolean,
+  nextValId: bigint,
+  valIds: bigint[],
+) {
+  return encodeAbiParameters(
+    [{ type: "bool" }, { type: "uint64" }, { type: "uint64[]" }],
+    [done, nextValId, valIds],
+  );
+}
 
 describe("Monad staking reader", () => {
   it("decodes getDelegator fixture payload", () => {
@@ -31,6 +46,20 @@ describe("Monad staking reader", () => {
       "0x1111111111111111111111111111111111111111",
     );
     expect(data.startsWith("0x573c1ce0")).toBe(true);
+  });
+
+  it("decodes getDelegations with official (isDone, nextValId, valIds) order", () => {
+    const encoded = encodeDelegationsPage(true, 0n, [1n, 154n, 3n]);
+    const page = decodeGetDelegationsResult(encoded);
+    expect(page.done).toBe(true);
+    expect(page.nextValId).toBe(0n);
+    expect(page.valIds).toEqual([1n, 154n, 3n]);
+  });
+
+  it("does not invent validator 0 from empty-page ABI layout", () => {
+    const empty = encodeDelegationsPage(true, 0n, []);
+    const page = decodeGetDelegationsResult(empty);
+    expect(page.valIds).toEqual([]);
   });
 
   it("maps unclaimed rewards to EarnEvent", () => {
@@ -77,23 +106,30 @@ describe("Monad staking reader", () => {
     expect(events[0]!.amount).toBe("0.000000000000000001");
   });
 
-  it("returns empty when no stake and no rewards", () => {
-    const events = delegatorStatesToEarnEvents(
-      "0x1111111111111111111111111111111111111111",
-      [
-        {
-          validatorId: 1n,
-          stake: 0n,
-          accRewardPerToken: 0n,
-          unclaimedRewards: 0n,
-          deltaStake: 0n,
-          nextDeltaStake: 0n,
-          deltaEpoch: 0n,
-          nextDeltaEpoch: 0n,
-        },
-      ],
-    );
-    expect(events).toEqual([]);
+  it("returns empty when no unclaimed rewards (even if staked)", () => {
+    const states = [
+      {
+        validatorId: 1n,
+        stake: 10n ** 18n,
+        accRewardPerToken: 0n,
+        unclaimedRewards: 0n,
+        deltaStake: 0n,
+        nextDeltaStake: 0n,
+        deltaEpoch: 0n,
+        nextDeltaEpoch: 0n,
+      },
+    ];
+    expect(
+      delegatorStatesToEarnEvents(
+        "0x1111111111111111111111111111111111111111",
+        states,
+      ),
+    ).toEqual([]);
+    expect(monadStakeEmptyInfo(states)).toMatch(/no unclaimed rewards/i);
+  });
+
+  it("explains bought-MON-but-not-staked", () => {
+    expect(monadStakeEmptyInfo([])).toMatch(/Buying or holding MON/i);
   });
 
   it("fetchMonadStakeEarnEvents uses mock rpc and fails closed on empty", async () => {
@@ -125,11 +161,7 @@ describe("Monad staking reader", () => {
   });
 
   it("lists delegations via getDelegations then fetches rewards", async () => {
-    const { encodeAbiParameters } = await import("viem");
-    const delegationsEncoded = encodeAbiParameters(
-      [{ type: "bool" }, { type: "uint64[]" }, { type: "uint64" }],
-      [true, [1n], 0n],
-    );
+    const delegationsEncoded = encodeDelegationsPage(true, 0n, [1n]);
     let calls = 0;
     const rpc2 = vi.fn(async () => {
       calls += 1;
@@ -145,17 +177,14 @@ describe("Monad staking reader", () => {
     expect(rpc2).toHaveBeenCalled();
   });
 
-  it("returns empty when no delegations", async () => {
-    const { encodeAbiParameters } = await import("viem");
-    const empty = encodeAbiParameters(
-      [{ type: "bool" }, { type: "uint64[]" }, { type: "uint64" }],
-      [true, [], 0n],
-    );
-    const events = await fetchMonadStakeEarnEvents(
+  it("returns empty info when no delegations", async () => {
+    const empty = encodeDelegationsPage(true, 0n, []);
+    const scan = await scanMonadStake(
       "0x1111111111111111111111111111111111111111",
       async () => empty,
     );
-    expect(events).toEqual([]);
+    expect(scan.events).toEqual([]);
+    expect(scan.info).toMatch(/No Monad stake found/i);
   });
 
   it("round-trips encode/decode with viem", () => {

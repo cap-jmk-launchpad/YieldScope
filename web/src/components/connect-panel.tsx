@@ -1,7 +1,7 @@
 "use client";
 
 import { useAccount } from "wagmi";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { NavWalletButton } from "@/components/nav-wallet-button";
 import { DEFAULT_MONAD_CHAIN_ID } from "@/lib/contracts";
 
@@ -37,6 +37,7 @@ export function ConnectPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { address, isConnected, chainId } = useAccount();
+  const lastAutoSavedRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +69,43 @@ export function ConnectPanel() {
       cancelled = true;
     };
   }, []);
+
+  // Persist the live Phantom address so sync works even if the user never
+  // clicks "Save connection" (dashboard also sends address on each sync).
+  useEffect(() => {
+    if (!isConnected || !address) return;
+    const key = `${address.toLowerCase()}:${chainId ?? DEFAULT_MONAD_CHAIN_ID}`;
+    if (lastAutoSavedRef.current === key) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/credentials", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            walletAddress: address,
+            chainId: chainId ?? DEFAULT_MONAD_CHAIN_ID,
+          }),
+        });
+        const json = (await res.json()) as {
+          status?: CredentialsStatusMap;
+          error?: string;
+        };
+        if (cancelled || !res.ok || !json.status) return;
+        lastAutoSavedRef.current = key;
+        setStatus({
+          ...emptyStatus(),
+          ...json.status,
+          monad_stake: json.status.monad_stake ?? emptyStatus().monad_stake,
+        });
+      } catch {
+        /* sync still receives live address from the dashboard */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isConnected, address, chainId]);
 
   async function onSave(e: FormEvent) {
     e.preventDefault();
@@ -263,7 +301,10 @@ export function ConnectPanel() {
           the Phantom extension here (not only in Brave) so we stay in-tab —
           no <code>phantom://</code> handoff. On phone: open this site in
           Phantom&apos;s in-app browser. Then hit Save connection. Use Monad
-          (not Monad Testnet) if prompted.
+          (not Monad Testnet) if prompted. YieldScope reads{" "}
+          <strong>staking</strong> rewards via precompile{" "}
+          <code>0x1000</code> — buying or holding MON alone does not create
+          earnings until you delegate to a validator.
         </p>
         <div className="wallet-connect">
           <NavWalletButton variant="panel" />

@@ -19,6 +19,8 @@ export interface AdapterResult {
   status: SourceStatus;
   events: EarnEvent[];
   error?: string;
+  /** Soft guidance when status is ok (e.g. wallet connected but nothing staked). */
+  info?: string;
 }
 
 export interface CexCredentials {

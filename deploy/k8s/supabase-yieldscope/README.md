@@ -145,3 +145,23 @@ bash deploy/scripts/upload-asset-logos.sh
 
 The web app resolves logos via `web/src/lib/asset-icon.ts` (`AssetIcon` / `CurrencyLogo` /
 `CurrencyCell`) and falls back to initials if an object is missing.
+
+## Brand icons (Connect / source strip)
+
+Venue marks for Binance, OKX, Monad, Terra Classic. Vendored under
+`web/public/brands/` and mirrored to a public Storage bucket:
+
+| | |
+|--|--|
+| Bucket | `brand-icons` |
+| Object path | `{slug}.svg` (`binance`, `okx`, `monad`, `terra`) |
+| Public URL | `https://supabase.yieldscope.d3bu7.com/storage/v1/object/public/brand-icons/{slug}.svg` |
+| Local fallback | `/brands/{slug}.svg` |
+
+```bash
+export KUBECONFIG="$HOME/.kube/config-homelab"
+bash deploy/scripts/upload-brand-icons.sh
+```
+
+Resolver: `web/src/lib/brand-icon.ts` + `BrandIcon` (CDN first, local on error).
+See `web/public/brands/README.md` for icon sources.

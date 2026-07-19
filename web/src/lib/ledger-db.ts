@@ -20,6 +20,8 @@ export interface PersistSourceInput {
   status: SourceStatus;
   events: EarnEvent[];
   error?: string;
+  /** Soft ok-status guidance; stored in last_error when status is ok. */
+  info?: string;
   walletAddress?: string | null;
   chainId?: number;
   /**
@@ -113,7 +115,13 @@ export interface DbLedgerSnapshot {
   eventsOrder?: LedgerSortOrder;
   sources: Record<
     SourceId,
-    { status: SourceStatus; error?: string; eventCount: number; lastSyncedAt?: string }
+    {
+      status: SourceStatus;
+      error?: string;
+      info?: string;
+      eventCount: number;
+      lastSyncedAt?: string;
+    }
   >;
   aggregates: LedgerAggregates;
   wallet?: { address: string; chainId: number; lastSeenAt: string } | null;
@@ -253,8 +261,13 @@ export async function persistSourceSync(
       profile_id: profileId,
       source: input.source,
       status: input.status,
-      // Clear stale errors whenever this source is not currently failing.
-      last_error: input.status === "error" ? (input.error ?? null) : null,
+      // Errors on failure; soft info on ok (e.g. Monad connected but not staked).
+      last_error:
+        input.status === "error"
+          ? (input.error ?? null)
+          : input.status === "ok"
+            ? (input.info ?? null)
+            : null,
       last_synced_at: asOf,
     },
     { onConflict: "profile_id,source" },
@@ -268,7 +281,7 @@ export async function persistSourceSync(
     source: input.source,
     status: input.status,
     event_count: input.events.length,
-    error: input.error ?? null,
+    error: input.error ?? input.info ?? null,
     started_at: asOf,
     finished_at: asOf,
     meta: {
@@ -568,6 +581,11 @@ export async function loadDbLedger(
         // Only surface errors for failing sources — never stale last_error on ok.
         error:
           status === "error" ? (row.last_error ?? undefined) : undefined,
+        // Soft guidance (e.g. Monad not staked) stored in last_error when status is ok.
+        info:
+          status === "ok" && row.last_error
+            ? String(row.last_error)
+            : undefined,
         eventCount: 0,
         lastSyncedAt: row.last_synced_at ?? undefined,
       };

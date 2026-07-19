@@ -49,13 +49,23 @@ export function sourceErrorForDisplay(
   return error || "Sync failed";
 }
 
+/** Soft ok-status guidance (e.g. Monad wallet connected but not staked). */
+export function sourceInfoForDisplay(
+  status: SourceStatus | undefined,
+  info: string | undefined,
+): string | undefined {
+  if (status !== "ok") return undefined;
+  const trimmed = info?.trim();
+  return trimmed || undefined;
+}
+
 export function formatSyncingOverview(pending: SourceId[]): string | null {
   if (pending.length === 0) return null;
   const labels: Record<SourceId, string> = {
     binance: "Binance",
     okx: "OKX",
-    monad_stake: "Monad stake",
-    lunc_stake: "LUNC stake",
+    monad_stake: "Monad",
+    lunc_stake: "Terra Classic",
   };
   if (pending.length === 1) {
     return `Syncing ${labels[pending[0]]}…`;

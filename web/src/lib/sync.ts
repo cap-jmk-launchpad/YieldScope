@@ -5,7 +5,7 @@ import {
 } from "./adapters/binance";
 import { fetchOkxEarnEvents, OkxAdapterError } from "./adapters/okx";
 import {
-  fetchMonadStakeEarnEvents,
+  scanMonadStake,
   type RpcCall,
 } from "./adapters/monad-stake";
 import {
@@ -238,6 +238,7 @@ async function commitSource(
       status: result.status,
       events: result.events,
       error: result.error,
+      info: result.info,
       walletAddress:
         source === "monad_stake" ? ctx.walletAddress : undefined,
       chainId: ctx.chainId,
@@ -402,11 +403,12 @@ export async function syncMonadStake(
     }
     const rpcUrl = defaultMonadRpcUrl(process.env.MONAD_RPC_URL);
     const client = createPublicClient({ transport: http(rpcUrl) });
-    const events = await fetchMonadStakeEarnEvents(
-      address,
-      monadRpcFromClient(client),
-    );
-    return commitSource(walletCtx, "monad_stake", { status: "ok", events });
+    const scan = await scanMonadStake(address, monadRpcFromClient(client));
+    return commitSource(walletCtx, "monad_stake", {
+      status: "ok",
+      events: scan.events,
+      info: scan.info,
+    });
   } catch (err) {
     const error = userFacingAdapterError(
       err,

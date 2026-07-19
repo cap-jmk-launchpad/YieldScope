@@ -35,6 +35,7 @@ import {
   resolveUiSourceStatus,
   shouldAutoImportMissing,
   sourceErrorForDisplay,
+  sourceInfoForDisplay,
   sourcesForSyncTarget,
   UI_STATUS_LABEL,
   writeSyncSession,
@@ -78,7 +79,13 @@ interface LedgerResponse {
   eventsOrder?: LedgerSortOrder;
   sources: Record<
     SourceId,
-    { status: SourceStatus; error?: string; eventCount: number; lastSyncedAt?: string }
+    {
+      status: SourceStatus;
+      error?: string;
+      info?: string;
+      eventCount: number;
+      lastSyncedAt?: string;
+    }
   >;
   aggregates?: {
     bySource: Array<{
@@ -999,8 +1006,10 @@ export function Dashboard({
           after each source’s last synced reward (upsert — older rows stay).
           Auto-import runs once when you open the dashboard if you already have
           history. Re-download full history replaces CEX/LUNC claim streams.
-          Monad always refreshes current pending only (no claim history). LUNC
-          pending is a point-in-time snapshot and may replace prior pending
+          Monad always refreshes current pending unclaimed rewards only (no
+          claim history — public RPC caps eth_getLogs at 100 blocks). Holding
+          MON is not staking: delegate to a validator first. LUNC pending is a
+          point-in-time snapshot and may replace prior pending
           rows.
           {selectedWindowLabel
             ? ` Selected window: ${selectedWindowLabel}.`
@@ -1038,6 +1047,9 @@ export function Dashboard({
           const displayError = syncing
             ? undefined
             : sourceErrorForDisplay(s?.status, s?.error);
+          const displayInfo = syncing
+            ? undefined
+            : sourceInfoForDisplay(s?.status, s?.info);
           const agg = ledger?.aggregates?.bySource.find((a) => a.source === id);
           const sourceAssets = (ledger?.aggregates?.byAsset ?? []).filter(
             (a) => a.source === id,
@@ -1082,6 +1094,9 @@ export function Dashboard({
               ) : null}
               {displayError ? (
                 <span className="source-error">{displayError}</span>
+              ) : null}
+              {displayInfo ? (
+                <span className="source-hint source-info">{displayInfo}</span>
               ) : null}
             </div>
           );
@@ -1241,7 +1256,8 @@ export function Dashboard({
               <tr>
                 <td colSpan={5} className="empty">
                   No earnings yet. Connect Binance, OKX, or a Monad wallet, then
-                  sync.
+                  sync. Monad shows unclaimed staking rewards only — buying MON
+                  is not enough; you must delegate/stake to a validator.
                 </td>
               </tr>
             ) : (

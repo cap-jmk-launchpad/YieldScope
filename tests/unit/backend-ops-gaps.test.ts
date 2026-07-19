@@ -304,13 +304,14 @@ describe("backend-ops coverage gaps", () => {
       /Empty getDelegations/,
     );
 
+    // Official order: (bool isDone, uint64 nextValId, uint64[] valIds)
     const page1 = encodeAbiParameters(
-      [{ type: "bool" }, { type: "uint64[]" }, { type: "uint64" }],
-      [false, [1n], 2n],
+      [{ type: "bool" }, { type: "uint64" }, { type: "uint64[]" }],
+      [false, 2n, [1n]],
     );
     const page2 = encodeAbiParameters(
-      [{ type: "bool" }, { type: "uint64[]" }, { type: "uint64" }],
-      [true, [2n], 0n],
+      [{ type: "bool" }, { type: "uint64" }, { type: "uint64[]" }],
+      [true, 0n, [2n]],
     );
     const delegatorData = encodeAbiParameters(
       [

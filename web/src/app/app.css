@@ -273,6 +273,14 @@
   color: var(--error);
 }
 
+.dash .source-info {
+  display: block;
+  margin-top: 0.25rem;
+  max-width: 42rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
 .dash .sync-status-strip {
   display: flex;
   align-items: center;

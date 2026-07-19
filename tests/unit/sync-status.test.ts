@@ -7,6 +7,7 @@ import {
   resolveUiSourceStatus,
   shouldAutoImportMissing,
   sourceErrorForDisplay,
+  sourceInfoForDisplay,
   sourcesForSyncTarget,
 } from "../../web/src/lib/sync-status";
 
@@ -34,6 +35,12 @@ describe("sync-status helpers", () => {
       "API key invalid",
     );
     expect(sourceErrorForDisplay("error", undefined)).toBe("Sync failed");
+  });
+
+  it("shows soft info only when status is ok", () => {
+    expect(sourceInfoForDisplay("ok", "No stake found")).toBe("No stake found");
+    expect(sourceInfoForDisplay("error", "No stake found")).toBeUndefined();
+    expect(sourceInfoForDisplay("ok", "  ")).toBeUndefined();
   });
 
   it("formats sync overview copy", () => {
