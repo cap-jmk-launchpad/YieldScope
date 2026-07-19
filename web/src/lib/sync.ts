@@ -394,11 +394,18 @@ export async function syncMonadStake(
     // Wallet required even in fixture mode — demo 2.5 MONAD must not appear
     // for users who never connected a wallet.
     if (!address) {
-      return commitSource(walletCtx, "monad_stake", {
-        status: "not_connected",
-        events: [],
-        error: "Wallet not connected",
-      });
+      // Upsert-only: never wipe prior pending/claimed rows when the wallet
+      // briefly disconnects during a Sync all.
+      return commitSource(
+        walletCtx,
+        "monad_stake",
+        {
+          status: "not_connected",
+          events: [],
+          error: "Wallet not connected",
+        },
+        { persistMode: "upsert" },
+      );
     }
     const plan = await resolveCexSyncPlan(walletCtx, "monad_stake");
     if (useFixtures()) {
@@ -442,10 +449,23 @@ export async function syncMonadStake(
 
     const window =
       ctx.window ?? { mode: "all" as const, fromMs: null, toMs: null };
-    const events =
-      scan.claimHistorySource === "none"
-        ? scan.pendingEvents
-        : filterEventsByWindow(scan.events, window);
+    const nowMs = Date.now();
+    // Pending is a live getDelegator snapshot (earnedAt = sync time). Keep it
+    // whenever the sync window reaches ~now — same rule as LUNC pending.
+    const rangeReachesNow =
+      window.mode === "all" ||
+      window.toMs == null ||
+      window.toMs >= nowMs - 86_400_000;
+    let events = scan.pendingEvents;
+    if (scan.claimHistorySource !== "none") {
+      const claimedInWindow = filterEventsByWindow(
+        scan.claimedEvents ?? [],
+        window,
+      );
+      events = rangeReachesNow
+        ? [...claimedInWindow, ...scan.pendingEvents]
+        : claimedInWindow;
+    }
 
     return commitSource(
       walletCtx,

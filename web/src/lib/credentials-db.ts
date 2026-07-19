@@ -430,13 +430,19 @@ export async function loadMonadWalletAddress(
     .maybeSingle();
   if (!profile?.id) return null;
 
-  const { data: row, error } = await admin
+  // Prefer Monad mainnet (143); fall back to most recently seen connection.
+  // Phantom can also record the same address on chain 1, which would otherwise
+  // win a pure last_seen_at sort and is fine for address lookup — but we still
+  // prefer the staking-relevant chain when both exist.
+  const { data: rows, error } = await admin
     .from("wallet_connections")
-    .select("address")
+    .select("address,chain_id")
     .eq("profile_id", profile.id)
     .order("last_seen_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error || !row?.address) return null;
+    .limit(20);
+  if (error || !rows?.length) return null;
+  const preferred = rows.find((r) => r.chain_id === DEFAULT_MONAD_CHAIN_ID);
+  const row = preferred ?? rows[0];
+  if (!row?.address) return null;
   return String(row.address);
 }

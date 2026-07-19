@@ -119,6 +119,7 @@ describe("syncMonadStake live path", () => {
 
     scanMonadStake.mockResolvedValueOnce({
       events: [claimed],
+      claimedEvents: [claimed],
       pendingEvents: [],
       states: [],
       claimHistorySource: "explorer",
@@ -157,6 +158,7 @@ describe("syncMonadStake live path", () => {
     getSourceHighWaterMs.mockResolvedValueOnce(Date.parse("2024-06-15T00:00:00.000Z"));
     scanMonadStake.mockResolvedValueOnce({
       events: [claimed, pending],
+      claimedEvents: [claimed],
       pendingEvents: [pending],
       states: [],
       claimHistorySource: "archive_rpc",
@@ -189,6 +191,61 @@ describe("syncMonadStake live path", () => {
     });
     expect(none.status).toBe("ok");
     expect(none.events).toEqual([pending]);
+  });
+
+  it("not_connected upserts without wiping; pending survives past claim window", async () => {
+    const { syncMonadStake } = await import("../../web/src/lib/sync");
+    const addr = "0x0000000000000000000000000000000000000001" as const;
+
+    const disconnected = await syncMonadStake(null, { userId: "u1" });
+    expect(disconnected.status).toBe("not_connected");
+    expect(persistSourceSync).toHaveBeenCalledWith(
+      expect.objectContaining({ persistMode: "upsert", events: [] }),
+    );
+
+    const pending = {
+      id: "monad_stake:x:pending:1",
+      source: "monad_stake" as const,
+      asset: "MON",
+      amount: "0.11",
+      earnedAt: new Date().toISOString(),
+      rawType: "UNCLAIMED_STAKING_REWARDS",
+    };
+    const claimed = {
+      id: "monad_stake:x:claim:0xabc:0x0",
+      source: "monad_stake" as const,
+      asset: "MON",
+      amount: "1",
+      earnedAt: "2024-01-15T00:00:00.000Z",
+      rawType: "CLAIMED_STAKING_REWARDS",
+    };
+    scanMonadStake.mockResolvedValueOnce({
+      events: [claimed, pending],
+      claimedEvents: [claimed],
+      pendingEvents: [pending],
+      states: [],
+      claimHistorySource: "archive_rpc",
+      claimHistoryComplete: true,
+      claimHistoryOk: true,
+    });
+    const now = Date.now();
+    const withPending = await syncMonadStake(addr, {
+      userId: "u1",
+      window: {
+        mode: "custom",
+        fromMs: now - 7 * 86_400_000,
+        toMs: now,
+      },
+    });
+    expect(withPending.status).toBe("ok");
+    expect(withPending.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: pending.id,
+          rawType: "UNCLAIMED_STAKING_REWARDS",
+        }),
+      ]),
+    );
   });
 
   it("incremental plan passes endMs into scanMonadStake", async () => {
