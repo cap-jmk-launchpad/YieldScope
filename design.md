@@ -42,11 +42,19 @@ Identity-preservation: Majico locked Plex — keep it even if greenfield brand r
 - **Background:** Layered ink gradient (`#05080f` → `#0c1524`) with a subtle scan-line / grid texture, plus a soft cyan radial wash behind the wordmark.
 - **Headline (locked pitch):** Solving scattered rewards.
 - **Support:** Track all your crypto rewards in one place — with Phase 1 sources named honestly.
+- **Section map** (see `docs/superpowers/specs/2026-07-19-landing-sections-design.md`):
+  1. Hero — brand + pitch + Track my rewards
+  2. Problem — scattered rewards / spreadsheet pain
+  3. How it works — Connect → Sync → Attest (numbered sequence)
+  4. Phase 1 sources — Binance, OKX, Monad, LUNC (honest scope)
+  5. Proof on Monad — `EarningsCheckpoint` + mono hash artifact
+  6. Blog teaser — featured posts → `/blog`
+  7. Closing CTA → Footer
 - **Motion (≥2–3 intentional):**
   1. Wordmark fade+rise on load (~600ms, ease-out expressive).
   2. Soft accent radial pulse behind brand (slow, 8s loop, opacity only).
   3. CTA underline / border draw on hover (150–200ms).
-  4. Section border/text settle on scroll (optional, transform/opacity only).
+  4. How-step sibling stagger on view (transform/opacity only — not uniform section fades).
   5. Respect `prefers-reduced-motion: reduce`.
 
 ## Product surface (dashboard / connect)
@@ -57,7 +65,7 @@ Identity-preservation: Majico locked Plex — keep it even if greenfield brand r
 
 ## Layout rules
 
-- Landing: brand → headline → sentence → CTAs; scroll for How it works / Sources / Checkpoint / Blog.
+- Landing: brand → headline → sentence → CTAs; scroll Problem → How → Sources → Checkpoint → Blog → close CTA.
 - App: top bar with YieldScope + wallet; main = total earned + source strip + events; side action = Attest checkpoint.
 
 ## Spacing & motion (Majico)
