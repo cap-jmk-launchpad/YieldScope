@@ -211,9 +211,34 @@
 }
 
 .dash .sources {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.dash .sources--vertical {
+  max-width: 40rem;
+}
+
+.dash .sources-section-title,
+.connect-panel .connection-section-title,
+.connect-panel .connect-group-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dash .sources-list,
+.connect-panel .connection-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .dash .source {
@@ -222,6 +247,21 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+.dash .source-row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+}
+
+.dash .source-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
 .dash .status-ok {
@@ -248,6 +288,9 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  flex-shrink: 0;
+  margin-left: auto;
+  align-self: center;
 }
 
 .dash .status-ok .source-status {
@@ -271,6 +314,25 @@
 
 .dash .source-error {
   color: var(--error);
+}
+
+.brand-icon {
+  flex-shrink: 0;
+  border-radius: 8px;
+  display: block;
+  object-fit: cover;
+}
+
+.brand-icon--fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink-elevated);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--muted) 35%, transparent);
 }
 
 .dash .source-info {
@@ -845,7 +907,7 @@
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  max-width: 36rem;
+  max-width: 40rem;
 }
 
 .connect-panel h2,
@@ -860,6 +922,12 @@
   font-size: 1rem;
 }
 
+.connect-panel h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
 .connect-panel .lede,
 .connect-panel .hint,
 .attest-panel .lede {
@@ -867,6 +935,100 @@
   margin: 0;
   font-size: 0.95rem;
   line-height: 1.5;
+}
+
+.connect-panel .connection-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1rem 0;
+  border-top: 1px solid color-mix(in oklab, var(--muted) 25%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--muted) 25%, transparent);
+}
+
+.connect-panel .connection-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--muted) 30%, transparent);
+}
+
+.connect-panel .connection-row.status-connected {
+  border-color: color-mix(in oklab, var(--mint) 45%, transparent);
+}
+
+.connect-panel .connection-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.connect-panel .connection-row-name {
+  font-weight: 600;
+  color: var(--paper);
+}
+
+.connect-panel .connection-row-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-panel .connection-row-hint.mono {
+  font-family: var(--font-mono);
+}
+
+.connect-panel .connection-row-status {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.connect-panel .status-connected .connection-row-status,
+.connect-panel .connection-row-status.status-connected {
+  color: var(--mint);
+}
+
+.connect-panel .connect-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.connect-panel .connect-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.connect-panel .connect-source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid color-mix(in oklab, var(--muted) 22%, transparent);
+}
+
+.connect-panel .connect-source-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.connect-panel .connect-source-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  flex: 1;
 }
 
 .connect-panel section {

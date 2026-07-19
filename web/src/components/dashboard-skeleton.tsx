@@ -29,12 +29,32 @@ export function DashboardDataSkeleton({
         <Bone className="dash-skel-bone--lg" style={{ width: "min(28rem, 85%)" }} />
       </div>
 
-      <div className="sources dash-skel-sources">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="source dash-skel-source" style={{ ["--i" as string]: i }}>
-            <Bone style={{ width: "5.5rem" }} />
-            <Bone style={{ width: "4rem" }} />
-            <Bone style={{ width: "7rem" }} />
+      <div className="sources sources--vertical dash-skel-sources">
+        {["Exchanges", "Wallets"].map((section, si) => (
+          <div key={section} className="sources-section">
+            <Bone style={{ width: "5rem", height: "0.7rem" }} />
+            <ul className="sources-list">
+              {Array.from({ length: 2 }, (_, i) => (
+                <li
+                  key={`${section}-${i}`}
+                  className="source source-row dash-skel-source"
+                  style={{ ["--i" as string]: si * 2 + i }}
+                >
+                  <Bone
+                    style={{
+                      width: "1.75rem",
+                      height: "1.75rem",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <div className="source-row-body">
+                    <Bone style={{ width: "5.5rem" }} />
+                    <Bone style={{ width: "7rem" }} />
+                  </div>
+                  <Bone style={{ width: "4rem" }} />
+                </li>
+              ))}
+            </ul>
           </div>
         ))}
       </div>

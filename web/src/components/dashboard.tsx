@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { CurrencyCell, CurrencyLogo } from "@/components/asset-icon";
+import { BrandIcon } from "@/components/brand-icon";
 import {
   DashboardDataSkeleton,
   SyncRangeSkeleton,
@@ -12,6 +13,12 @@ import { EarningsCharts } from "@/components/earnings-charts";
 import { SortableTh } from "@/components/sortable-th";
 import { TablePager } from "@/components/table-pager";
 import type { EarnEvent, SourceId, SourceStatus } from "@/lib/adapters/types";
+import {
+  CONNECTION_BRANDS,
+  SECTION_LABEL,
+  brandsInSection,
+  type ConnectionSection,
+} from "@/lib/brand-icon";
 import { DEFAULT_MONAD_CHAIN_ID } from "@/lib/contracts";
 import type { ConvertAmount } from "@/lib/earnings-charts";
 import type { LedgerEventsSort, LedgerSortOrder } from "@/lib/ledger-db";
@@ -107,12 +114,11 @@ interface LedgerResponse {
   error?: string;
 }
 
-const SOURCE_LABEL: Record<SourceId, string> = {
-  binance: "Binance",
-  okx: "OKX",
-  monad_stake: "Monad stake",
-  lunc_stake: "LUNC stake",
-};
+const SOURCE_LABEL: Record<SourceId, string> = Object.fromEntries(
+  CONNECTION_BRANDS.map((b) => [b.id, b.name]),
+) as Record<SourceId, string>;
+
+const SOURCE_SECTIONS: ConnectionSection[] = ["exchanges", "wallets"];
 
 const SYNC_RANGE_KEY = "yieldscope.syncRange";
 /** Tab-session guard so quiet auto-import runs at most once per open tab. */
@@ -1036,71 +1042,95 @@ export function Dashboard({
         </p>
       ) : null}
 
-      <div className="sources">
-        {(Object.keys(SOURCE_LABEL) as SourceId[]).map((id) => {
-          const s = ledger?.sources[id];
-          const syncing = syncingSources.includes(id);
-          const uiStatus: UiSourceStatus = resolveUiSourceStatus(
-            s?.status,
-            syncing,
-          );
-          const displayError = syncing
-            ? undefined
-            : sourceErrorForDisplay(s?.status, s?.error);
-          const displayInfo = syncing
-            ? undefined
-            : sourceInfoForDisplay(s?.status, s?.info);
-          const agg = ledger?.aggregates?.bySource.find((a) => a.source === id);
-          const sourceAssets = (ledger?.aggregates?.byAsset ?? []).filter(
-            (a) => a.source === id,
-          );
-          const converted = sumInDisplayCurrency(
-            sourceAssets,
-            activeCurrency,
-            rates,
-          );
-          const sumLabel =
-            converted.total != null
-              ? formatDisplayAmount(converted.total, activeCurrency)
-              : agg
-                ? `Σ ${agg.totalAmount} (native)`
-                : "";
-          const isPointInTime = id === "monad_stake";
-          return (
-            <div
-              key={id}
-              className={`source status-${uiStatus}`}
-              aria-busy={syncing}
-            >
-              <span className="source-name">{SOURCE_LABEL[id]}</span>
-              <span className="source-status">
-                {syncing ? (
-                  <>
-                    <span className="sync-spinner sync-spinner-sm" aria-hidden />
-                    {UI_STATUS_LABEL.syncing}
-                  </>
-                ) : (
-                  UI_STATUS_LABEL[uiStatus]
-                )}
-              </span>
-              <span className="source-count">
-                {agg?.eventCount ?? s?.eventCount ?? 0} events
-                {sumLabel ? ` · ${sumLabel}` : ""}
-              </span>
-              {isPointInTime ? (
-                <span className="source-hint">Current pending only</span>
-              ) : id === "lunc_stake" ? (
-                <span className="source-hint">Claims + pending</span>
-              ) : null}
-              {displayError ? (
-                <span className="source-error">{displayError}</span>
-              ) : null}
-              {displayInfo ? (
-                <span className="source-hint source-info">{displayInfo}</span>
-              ) : null}
-            </div>
-          );
-        })}
+      <div className="sources sources--vertical" aria-label="Source status">
+        {SOURCE_SECTIONS.map((section) => (
+          <div key={section} className="sources-section">
+            <h3 className="sources-section-title">{SECTION_LABEL[section]}</h3>
+            <ul className="sources-list">
+              {brandsInSection(section).map((brand) => {
+                const id = brand.id;
+                const s = ledger?.sources[id];
+                const syncing = syncingSources.includes(id);
+                const uiStatus: UiSourceStatus = resolveUiSourceStatus(
+                  s?.status,
+                  syncing,
+                );
+                const displayError = syncing
+                  ? undefined
+                  : sourceErrorForDisplay(s?.status, s?.error);
+                const displayInfo = syncing
+                  ? undefined
+                  : sourceInfoForDisplay(s?.status, s?.info);
+                const agg = ledger?.aggregates?.bySource.find(
+                  (a) => a.source === id,
+                );
+                const sourceAssets = (ledger?.aggregates?.byAsset ?? []).filter(
+                  (a) => a.source === id,
+                );
+                const converted = sumInDisplayCurrency(
+                  sourceAssets,
+                  activeCurrency,
+                  rates,
+                );
+                const sumLabel =
+                  converted.total != null
+                    ? formatDisplayAmount(converted.total, activeCurrency)
+                    : agg
+                      ? `Σ ${agg.totalAmount} (native)`
+                      : "";
+                const isPointInTime = id === "monad_stake";
+                return (
+                  <li
+                    key={id}
+                    className={`source source-row status-${uiStatus}`}
+                    aria-busy={syncing}
+                  >
+                    <BrandIcon
+                      slug={brand.slug}
+                      alt={brand.name}
+                      size="md"
+                    />
+                    <div className="source-row-body">
+                      <span className="source-name">{brand.name}</span>
+                      <span className="source-count">
+                        {agg?.eventCount ?? s?.eventCount ?? 0} events
+                        {sumLabel ? ` · ${sumLabel}` : ""}
+                      </span>
+                      {isPointInTime ? (
+                        <span className="source-hint">
+                          Current pending only
+                        </span>
+                      ) : id === "lunc_stake" ? (
+                        <span className="source-hint">Claims + pending</span>
+                      ) : null}
+                      {displayError ? (
+                        <span className="source-error">{displayError}</span>
+                      ) : null}
+                      {displayInfo ? (
+                        <span className="source-hint source-info">
+                          {displayInfo}
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="source-status">
+                      {syncing ? (
+                        <>
+                          <span
+                            className="sync-spinner sync-spinner-sm"
+                            aria-hidden
+                          />
+                          {UI_STATUS_LABEL.syncing}
+                        </>
+                      ) : (
+                        UI_STATUS_LABEL[uiStatus]
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </div>
 
       {chartsLoading && chartRows.length === 0 ? (
