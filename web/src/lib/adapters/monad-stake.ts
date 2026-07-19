@@ -17,11 +17,12 @@ export const MONAD_STAKING_PRECOMPILE =
  * getDelegations returns (isDone, nextValId, valIds) — NOT (isDone, valIds, nextValId).
  * The wrong order silently decodes empty/non-empty pages as fake validatorId 0.
  *
- * Reward rule (product): only unclaimed rewards from validators returned by
- * getDelegations for this wallet count. That set is the current (and residual)
- * delegation list — not arbitrary wallet transfers, not validators never
- * delegated to. Historical ClaimRewards logs are not indexed (public RPC
- * eth_getLogs capped at 100 blocks), so pending unclaimed is the honest snapshot.
+ * Reward rule (product):
+ * - Pending: unclaimed from validators returned by getDelegations (current set).
+ * - Claimed: ClaimRewards logs where topic2 = this wallet (delegator) — proves
+ *   the wallet claimed while delegated to that validator. Not arbitrary transfers.
+ * Claimed history comes from explorer (Etherscan V2) or archive eth_getLogs;
+ * public rpc.monad.xyz caps getLogs at ~100 blocks.
  */
 export const monadStakingAbi = parseAbi([
   "function getDelegator(uint64 validatorId, address delegator) returns (uint256 stake, uint256 accRewardPerToken, uint256 unclaimedRewards, uint256 deltaStake, uint256 nextDeltaStake, uint64 deltaEpoch, uint64 nextDeltaEpoch)",
@@ -144,7 +145,8 @@ export function delegatorStatesToEarnEvents(
   return states
     .filter((s) => s.validatorId > 0n && s.unclaimedRewards > 0n)
     .map((s) => ({
-      id: `monad_stake:${address.toLowerCase()}:val${s.validatorId}:${asOf.toISOString()}`,
+      // Stable id so upserts replace the prior pending snapshot (like LUNC).
+      id: `monad_stake:${address.toLowerCase()}:val${s.validatorId}:unclaimed`,
       source: "monad_stake" as const,
       asset: "MON",
       amount: formatMon(s.unclaimedRewards),
@@ -154,6 +156,7 @@ export function delegatorStatesToEarnEvents(
         validatorId: s.validatorId.toString(),
         stake: formatMon(s.stake),
         accRewardPerToken: s.accRewardPerToken.toString(),
+        kind: "pending",
       },
     }));
 }
@@ -169,7 +172,7 @@ export function monadStakeEmptyInfo(states: DelegatorState[]): string {
     return "No Monad delegation found for this wallet. Buying or holding MON does not earn staking rewards until you delegate to a validator. Unclaimed rewards from validators you’re delegated to appear here after you stake.";
   }
   const totalStake = staked.reduce((acc, s) => acc + s.stake, 0n);
-  return `Wallet is delegated to ${staked.length} validator${staked.length === 1 ? "" : "s"} (${formatMon(totalStake)} MON) but has no unclaimed rewards yet. Only pending unclaimed from your current delegation set is shown — claimed reward history is not indexed on the public RPC (eth_getLogs capped at 100 blocks).`;
+  return `Wallet is delegated to ${staked.length} validator${staked.length === 1 ? "" : "s"} (${formatMon(totalStake)} MON) but has no unclaimed rewards yet. Pending unclaimed comes from your current delegation set; claimed ClaimRewards history is loaded from explorer/archive when available.`;
 }
 
 /** Exact wei → MON decimal string (18 dp). Exported for tests / shared formatting. */
@@ -189,6 +192,17 @@ export interface MonadStakeScanResult {
   states: DelegatorState[];
   /** Validator IDs from getDelegations (after normalize / optional restrict). */
   delegatedValidatorIds: bigint[];
+  /** Claimed ClaimRewards rows (may be empty when history API soft-fails). */
+  claimedEvents: EarnEvent[];
+  /** Pending unclaimed rows from getDelegator. */
+  pendingEvents: EarnEvent[];
+  /**
+   * True when claimed history was fetched successfully (explorer or archive).
+   * False → soft-degrade: sync should upsert pending only and keep prior claims.
+   */
+  claimHistoryOk: boolean;
+  /** Which history backend produced claimedEvents. */
+  claimHistorySource: "explorer" | "archive_rpc" | "none";
 }
 
 export interface ScanMonadStakeOpts {
@@ -200,6 +214,13 @@ export interface ScanMonadStakeOpts {
   /** @deprecated Use onlyValidatorIds — kept as alias for smoke/tests. */
   validatorIds?: bigint[];
   asOf?: Date;
+  /** Inclusive window for claimed history (ms). Pending ignores this. */
+  startMs?: number | null;
+  endMs?: number | null;
+  /** Skip claimed-history fetch (unit tests / pending-only). */
+  skipClaimHistory?: boolean;
+  /** Injected claim-history fetcher (tests). */
+  fetchClaimed?: typeof import("./monad-claim-history").fetchMonadClaimedRewards;
 }
 
 /**
@@ -219,12 +240,12 @@ export async function fetchMonadStakeEarnEvents(
  * Full scan including soft empty-state info for the dashboard.
  *
  * Calculation rule:
- * 1. Enumerate validators via getDelegations (paginated) — source of truth.
+ * 1. Enumerate validators via getDelegations (paginated) — source of truth for pending.
  * 2. Read getDelegator only for those validator IDs.
- * 3. Emit earn rows only where unclaimedRewards > 0 (pending accrued while
- *    delegated; the precompile’s unclaimed balance is the protocol’s
- *    delegation-period accrual for that (validator, delegator) pair).
- * 4. Never attribute transfers or non-delegated validators.
+ * 3. Emit pending earn rows only where unclaimedRewards > 0.
+ * 4. Best-effort ClaimRewards history (explorer → archive RPC); soft-degrade on failure.
+ * 5. Never attribute transfers or non-delegated validators for pending;
+ *    claimed rows are self-attested by the ClaimRewards delegator topic.
  */
 export async function scanMonadStake(
   address: Address,
@@ -245,15 +266,6 @@ export async function scanMonadStake(
     ? listed.filter((id) => restrict.has(id.toString()))
     : listed;
 
-  if (validatorIds.length === 0) {
-    return {
-      events: [],
-      info: monadStakeEmptyInfo([]),
-      states: [],
-      delegatedValidatorIds: [],
-    };
-  }
-
   const states: DelegatorState[] = [];
   for (const validatorId of validatorIds) {
     const data = await rpcCall({
@@ -264,12 +276,47 @@ export async function scanMonadStake(
     states.push({ validatorId, ...decoded });
   }
 
-  const events = delegatorStatesToEarnEvents(address, states, opts?.asOf);
+  const pendingEvents = delegatorStatesToEarnEvents(
+    address,
+    states,
+    opts?.asOf,
+  );
+
+  let claimedEvents: EarnEvent[] = [];
+  let claimHistoryOk = false;
+  let claimHistorySource: "explorer" | "archive_rpc" | "none" = "none";
+  let claimInfo: string | undefined;
+
+  if (!opts?.skipClaimHistory) {
+    const fetchClaimed =
+      opts?.fetchClaimed ??
+      (await import("./monad-claim-history")).fetchMonadClaimedRewards;
+    const history = await fetchClaimed(address, {
+      startMs: opts?.startMs,
+      endMs: opts?.endMs,
+    });
+    claimedEvents = history.events;
+    claimHistorySource = history.source;
+    claimHistoryOk = history.source !== "none";
+    claimInfo = history.info;
+  }
+
+  const events = [...claimedEvents, ...pendingEvents];
+  const infoParts: string[] = [];
+  if (events.length === 0) {
+    infoParts.push(monadStakeEmptyInfo(states));
+  }
+  if (claimInfo) infoParts.push(claimInfo);
+
   return {
     events,
-    info: events.length === 0 ? monadStakeEmptyInfo(states) : undefined,
+    info: infoParts.length > 0 ? infoParts.join(" ") : undefined,
     states,
     delegatedValidatorIds: validatorIds,
+    claimedEvents,
+    pendingEvents,
+    claimHistoryOk,
+    claimHistorySource,
   };
 }
 

@@ -14,6 +14,15 @@ data:
   # Mainnet RPC for server-side stake reads + baked NEXT_PUBLIC_* at image build.
   MONAD_RPC_URL: "https://rpc.monad.xyz"
   NEXT_PUBLIC_MONAD_RPC_URL: "https://rpc.monad.xyz"
+  # Wider getLogs for ClaimRewards (Ankr public ≈1000-block windows).
+  MONAD_ARCHIVE_RPC_URL: "https://rpc3.monad.xyz"
+  MONAD_CLAIM_LOGS_CHUNK_BLOCKS: "1000"
+  MONAD_CLAIM_HISTORY_MAX_BLOCKS: "500000"
+  MONAD_CLAIM_LOGS_CONCURRENCY: "8"
+  # Optional: set MONAD_EXPLORER_API_KEY in yieldscope-secrets for full
+  # Monadscan-indexed claim history (free Etherscan API V2 key, chainid 143).
+  MONAD_EXPLORER_API_URL: "https://api.etherscan.io/v2/api"
+  MONAD_EXPLORER_CHAIN_ID: "143"
   # Attest stays fail-closed until a mainnet EarningsCheckpoint is deployed.
   NEXT_PUBLIC_CHECKPOINT_ADDRESS: "0x0000000000000000000000000000000000000000"
   # Must stay "0" in prod — fixture mode used to invent 2.5 MONAD earn rows

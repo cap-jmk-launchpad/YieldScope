@@ -717,15 +717,15 @@ export function Dashboard({
 
       if (sourceErrors.length > 0) {
         setMessage(
-          `Sync finished with errors (${modeLabel}). Monad = current pending only. ${sourceErrors.join(" · ")}`,
+          `Sync finished with errors (${modeLabel}). Monad = pending + claimed when history APIs work. ${sourceErrors.join(" · ")}`,
         );
       } else if (quiet) {
         setMessage(
-          "Caught up on missing rewards since last sync. Monad refreshes current pending; LUNC pending may replace its snapshot.",
+          "Caught up on missing rewards since last sync. Monad refreshes pending and imports new ClaimRewards when history is available; LUNC pending may replace its snapshot.",
         );
       } else {
         setMessage(
-          `Sync finished (${modeLabel}). LUNC includes claimed on-chain rewards in range plus current pending when the range reaches today; Monad is pending-only.`,
+          `Sync finished (${modeLabel}). LUNC and Monad include claimed on-chain rewards in range plus current pending when the range reaches today.`,
         );
       }
       if (forceFullRefresh && !quiet) setForceFullRefresh(false);
@@ -1008,15 +1008,15 @@ export function Dashboard({
           </>
         ) : null}
         <p className="sync-range-hint">
-          Import missing fetches only newer Binance / OKX / LUNC claim rows
-          after each source’s last synced reward (upsert — older rows stay).
+          Import missing fetches only newer Binance / OKX / LUNC / Monad claim
+          rows after each source’s last synced reward (upsert — older rows stay).
           Auto-import runs once when you open the dashboard if you already have
-          history. Re-download full history replaces CEX/LUNC claim streams.
-          Monad always refreshes unclaimed rewards from validators you’re
-          delegated to (current delegation set only — no claim history; public
-          RPC caps eth_getLogs at 100 blocks). Holding MON is not staking:
-          delegate first. LUNC pending is a point-in-time snapshot and may
-          replace prior pending rows.
+          history. Re-download full history replaces CEX/LUNC/Monad claim streams.
+          Monad also refreshes unclaimed rewards from validators you’re delegated
+          to. Claimed `ClaimRewards` come from explorer/archive when available
+          (soft-degrades to pending-only if those APIs fail). Holding MON is not
+          staking: delegate first. LUNC pending is a point-in-time snapshot and
+          may replace prior pending rows.
           {selectedWindowLabel
             ? ` Selected window: ${selectedWindowLabel}.`
             : ""}
@@ -1078,7 +1078,7 @@ export function Dashboard({
                     : agg
                       ? `Σ ${agg.totalAmount} (native)`
                       : "";
-                const isPointInTime = id === "monad_stake";
+                const isMonad = id === "monad_stake";
                 return (
                   <li
                     key={id}
@@ -1096,11 +1096,7 @@ export function Dashboard({
                         {agg?.eventCount ?? s?.eventCount ?? 0} events
                         {sumLabel ? ` · ${sumLabel}` : ""}
                       </span>
-                      {isPointInTime ? (
-                        <span className="source-hint">
-                          Current pending only
-                        </span>
-                      ) : id === "lunc_stake" ? (
+                      {isMonad || id === "lunc_stake" ? (
                         <span className="source-hint">Claims + pending</span>
                       ) : null}
                       {displayError ? (
@@ -1286,8 +1282,9 @@ export function Dashboard({
               <tr>
                 <td colSpan={5} className="empty">
                   No earnings yet. Connect Binance, OKX, or a Monad wallet, then
-                  sync. Monad shows unclaimed rewards from validators you’re
-                  delegated to — buying MON is not enough; you must stake.
+                  sync. Monad shows claimed ClaimRewards plus unclaimed rewards
+                  from validators you’re delegated to — buying MON is not enough;
+                  you must stake.
                 </td>
               </tr>
             ) : (

@@ -190,6 +190,7 @@ describe("Monad staking reader", () => {
     });
     const events = await fetchMonadStakeEarnEvents(ADDR, rpc, {
       asOf: new Date("2024-07-01T00:00:00.000Z"),
+      skipClaimHistory: true,
     });
     expect(events).toHaveLength(1);
     expect(events[0].amount).toBe("2.5");
@@ -211,7 +212,9 @@ describe("Monad staking reader", () => {
 
   it("returns empty when not staked (no delegations)", async () => {
     const empty = encodeDelegationsPage(true, 0n, []);
-    const scan = await scanMonadStake(ADDR, async () => empty);
+    const scan = await scanMonadStake(ADDR, async () => empty, {
+      skipClaimHistory: true,
+    });
     expect(scan.events).toEqual([]);
     expect(scan.delegatedValidatorIds).toEqual([]);
     expect(scan.info).toMatch(/No Monad delegation found/i);
@@ -247,6 +250,7 @@ describe("Monad staking reader", () => {
     };
     const scan = await scanMonadStake(ADDR, rpc, {
       asOf: new Date("2024-07-01T00:00:00.000Z"),
+      skipClaimHistory: true,
     });
     expect(scan.delegatedValidatorIds).toEqual([1n, 7n, 154n]);
     expect(scan.events).toHaveLength(2);
@@ -277,6 +281,7 @@ describe("Monad staking reader", () => {
     const scan = await scanMonadStake(ADDR, rpc, {
       onlyValidatorIds: [1n, 999n, 0n],
       asOf: new Date("2024-07-01T00:00:00.000Z"),
+      skipClaimHistory: true,
     });
     expect(scan.delegatedValidatorIds).toEqual([1n]);
     expect(scan.events).toHaveLength(1);
@@ -287,6 +292,7 @@ describe("Monad staking reader", () => {
     const page = encodeDelegationsPage(true, 0n, [1n, 2n]);
     const scan = await scanMonadStake(ADDR, async () => page, {
       onlyValidatorIds: [999n],
+      skipClaimHistory: true,
     });
     expect(scan.events).toEqual([]);
     expect(scan.delegatedValidatorIds).toEqual([]);
@@ -349,7 +355,7 @@ describe("Monad staking reader", () => {
       calls += 1;
       if (calls === 1) return page;
       return encodeDelegatorState({ stake: 10n ** 18n, unclaimedRewards: 0n });
-    });
+    }, { skipClaimHistory: true });
     expect(scan.events).toEqual([]);
     expect(scan.info).toMatch(/delegated to 1 validator /i);
   });
@@ -368,6 +374,7 @@ describe("Monad staking reader", () => {
     const scan = await scanMonadStake(ADDR, rpc, {
       validatorIds: [2n],
       asOf: new Date("2024-07-01T00:00:00.000Z"),
+      skipClaimHistory: true,
     });
     expect(scan.delegatedValidatorIds).toEqual([2n]);
     expect(scan.events).toHaveLength(1);
@@ -392,4 +399,63 @@ describe("Monad staking reader", () => {
     expect(decoded.unclaimedRewards).toBe(3n);
   });
 
+  it("merges claimed ClaimRewards with pending and soft-degrades", async () => {
+    const page = encodeDelegationsPage(true, 0n, [1n]);
+    let calls = 0;
+    const rpc = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return page;
+      return encodeDelegatorState({
+        stake: 10n ** 18n,
+        unclaimedRewards: 10n ** 18n,
+      });
+    });
+    const claimed = [
+      {
+        id: `monad_stake:${ADDR.toLowerCase()}:claim:0xabc:0x0`,
+        source: "monad_stake" as const,
+        asset: "MON",
+        amount: "0.25",
+        earnedAt: "2026-01-15T12:00:00.000Z",
+        rawType: "CLAIMED_STAKING_REWARDS",
+        meta: { validatorId: "1", kind: "claimed" },
+      },
+    ];
+    const scan = await scanMonadStake(ADDR, rpc, {
+      asOf: new Date("2024-07-01T00:00:00.000Z"),
+      fetchClaimed: async () => ({
+        events: claimed,
+        source: "explorer" as const,
+      }),
+    });
+    expect(scan.claimHistoryOk).toBe(true);
+    expect(scan.claimHistorySource).toBe("explorer");
+    expect(scan.claimedEvents).toHaveLength(1);
+    expect(scan.pendingEvents).toHaveLength(1);
+    expect(scan.events).toHaveLength(2);
+    expect(scan.pendingEvents[0]!.id).toBe(
+      `monad_stake:${ADDR.toLowerCase()}:val1:unclaimed`,
+    );
+
+    const softRpc = vi.fn(async () => {
+      // Always return a one-page delegation + same pending state.
+      if ((softRpc.mock.calls.length - 1) % 2 === 0) return page;
+      return encodeDelegatorState({
+        stake: 10n ** 18n,
+        unclaimedRewards: 10n ** 18n,
+      });
+    });
+    const soft = await scanMonadStake(ADDR, softRpc, {
+      asOf: new Date("2024-07-01T00:00:00.000Z"),
+      fetchClaimed: async () => ({
+        events: [],
+        source: "none" as const,
+        info: "Claimed reward history unavailable.",
+      }),
+    });
+    expect(soft.claimHistoryOk).toBe(false);
+    expect(soft.claimHistorySource).toBe("none");
+    expect(soft.events).toHaveLength(1);
+    expect(soft.info).toMatch(/history unavailable/i);
+  });
 });

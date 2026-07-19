@@ -74,14 +74,14 @@ describe("sync-range", () => {
         to: "2026-07-18",
       }).length,
     ).toBeGreaterThan(10);
-    // Monad stays a single call (point-in-time)
+    // Monad now has ClaimRewards history — same ≤90d transport splits as CEX/LUNC
     expect(
       syncRangesForSource("monad_stake", {
         mode: "custom",
         from: "2022-01-01",
         to: "2026-07-18",
-      }),
-    ).toHaveLength(1);
+      }).length,
+    ).toBeGreaterThan(10);
     // Binance gets split
     expect(
       syncRangesForSource("binance", {
@@ -241,7 +241,7 @@ describe("sync-range", () => {
       to: "2024-01-02",
     });
     expect(isPointInTimeSource("lunc_stake")).toBe(false);
-    expect(isPointInTimeSource("monad_stake")).toBe(true);
+    expect(isPointInTimeSource("monad_stake")).toBe(false);
     expect(isPointInTimeSource("binance")).toBe(false);
     expect(ledgerEventsForDisplay([{ id: 1 }, { id: 2 }])).toEqual([
       { id: 1 },

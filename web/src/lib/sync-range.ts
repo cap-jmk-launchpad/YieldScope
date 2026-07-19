@@ -7,7 +7,7 @@
  * |---------------|---------------|---------|---------|
  * | Binance / OKX | Fetch bounded to the selected window (or import-missing / incremental) | Custom → merge-replace inside window (keep outside). First run / forceFull → replace. Import-missing later → upsert from high-water. | Full persisted ledger (no client date filter). |
  * | LUNC stake    | Crawl claimed `withdraw_rewards` / autostake txs via FCD (LCD event-search fallback; public LCDs prune ~100d) + pending when window reaches “now” | Same merge/replace/upsert plan as CEX | Full persisted ledger. |
- * | Monad stake   | Pending unclaimed from current getDelegations set — **range ignored** | Always full-replace snapshot | Current pending rows (`earnedAt` = sync time). |
+ * | Monad stake   | Claimed `ClaimRewards` via explorer (Etherscan V2) or archive RPC chunks + current pending from getDelegations. Soft-degrades to pending-only if history APIs fail. | Same merge/replace/upsert as CEX/LUNC when history ok; upsert pending-only on history soft-fail | Claimed rows at tx time + pending snapshot |
  *
  * Date-only `YYYY-MM-DD` bounds are UTC day starts/ends. The picker is a
  * **sync** control, not a view filter: after sync, `/api/ledger` returns the
@@ -37,13 +37,16 @@ export interface ResolvedSyncWindow {
   toMs: number | null;
 }
 
-/** Sources that ignore the sync date range (pending snapshot only). */
-export const POINT_IN_TIME_SOURCES = ["monad_stake"] as const;
+/**
+ * Sources that ignore the sync date range (pending snapshot only).
+ * Empty after Monad gained ClaimRewards history — kept for API stability.
+ */
+export const POINT_IN_TIME_SOURCES = [] as const;
 
 export type PointInTimeSource = (typeof POINT_IN_TIME_SOURCES)[number];
 
 export function isPointInTimeSource(source: string): source is PointInTimeSource {
-  return source === "monad_stake";
+  return (POINT_IN_TIME_SOURCES as readonly string[]).includes(source);
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -143,7 +146,7 @@ export function splitCustomRangeForTransport(
 
 /**
  * Ranges the dashboard should POST per source.
- * CEX + LUNC custom multi-year → ≤90-day transport splits; Monad → single call.
+ * CEX + LUNC + Monad custom multi-year → ≤90-day transport splits.
  */
 export function syncRangesForSource(
   source: string,

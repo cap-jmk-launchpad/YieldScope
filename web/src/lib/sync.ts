@@ -98,14 +98,14 @@ export type CexPersistPlan = {
 };
 
 /**
- * Resolve CEX fetch + persist plan.
+ * Resolve CEX / LUNC / Monad-claim fetch + persist plan.
  * - Custom range → fetch window, merge-replace in window
  * - All time + forceFull / no high-water → full backfill, replace
  * - All time with existing events → incremental from high-water − overlap
  */
 export async function resolveCexSyncPlan(
   ctx: SyncContext,
-  source: "binance" | "okx" | "lunc_stake",
+  source: "binance" | "okx" | "lunc_stake" | "monad_stake",
   nowMs = Date.now(),
 ): Promise<CexPersistPlan> {
   const window =
@@ -375,8 +375,9 @@ export function monadRpcFromClient(client: {
 }
 
 /**
- * Monad staking: point-in-time pending unclaimed from getDelegations → getDelegator.
- * Date range ignored. Only validators the wallet is delegated to; never invents rows.
+ * Monad staking: pending unclaimed from getDelegations → getDelegator, plus
+ * best-effort ClaimRewards history (explorer → archive RPC). Soft-degrades to
+ * pending-only when history APIs fail (preserves prior claimed rows via upsert).
  */
 export async function syncMonadStake(
   address: Address | null,
@@ -397,18 +398,58 @@ export async function syncMonadStake(
         error: "Wallet not connected",
       });
     }
+    const plan = await resolveCexSyncPlan(walletCtx, "monad_stake");
     if (useFixtures()) {
-      const events = await loadFixtureEvents("monad_stake");
-      return commitSource(walletCtx, "monad_stake", { status: "ok", events });
+      const events = filterEventsByWindow(
+        await loadFixtureEvents("monad_stake"),
+        ctx.window ?? { mode: "all", fromMs: null, toMs: null },
+      );
+      return commitSource(
+        walletCtx,
+        "monad_stake",
+        { status: "ok", events },
+        plan,
+      );
     }
     const rpcUrl = defaultMonadRpcUrl(process.env.MONAD_RPC_URL);
     const client = createPublicClient({ transport: http(rpcUrl) });
-    const scan = await scanMonadStake(address, monadRpcFromClient(client));
-    return commitSource(walletCtx, "monad_stake", {
-      status: "ok",
-      events: scan.events,
-      info: scan.info,
+    const endMs = plan.opts.allTime
+      ? Date.now()
+      : (plan.opts.endMs ?? null);
+    const scan = await scanMonadStake(address, monadRpcFromClient(client), {
+      startMs: plan.opts.startMs ?? null,
+      endMs,
+      asOf: new Date(),
     });
+
+    // Soft-degrade / partial archive: never full-replace (would wipe older claims).
+    // Full replace only when explorer returned a complete indexed history.
+    const persistPlan =
+      scan.claimHistorySource === "explorer"
+        ? plan
+        : {
+            persistMode: "upsert" as const,
+            mergeFromMs: plan.mergeFromMs,
+            mergeToMs: plan.mergeToMs,
+          };
+
+    const window =
+      ctx.window ?? { mode: "all" as const, fromMs: null, toMs: null };
+    const events =
+      scan.claimHistorySource === "none"
+        ? scan.pendingEvents
+        : filterEventsByWindow(scan.events, window);
+
+    return commitSource(
+      walletCtx,
+      "monad_stake",
+      {
+        status: "ok",
+        events,
+        info: scan.info,
+      },
+      persistPlan,
+    );
   } catch (err) {
     const error = userFacingAdapterError(
       err,

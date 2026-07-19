@@ -16,7 +16,7 @@ YieldScope syncs **earn-only** streams (not full portfolios) into one dashboard,
 |--------|----------------|
 | Binance | Simple Earn rewards / interest history |
 | OKX | Savings / Simple Earn interest via lending-history **`earnings`** (not principal `amt`), funding Auto lend bills (**type 400** / USDG **408** / Fixed **308·343**, plus legacy 126), and account Auto Earn (**type 381** `earnAmt`). Empty lending-history alone is not “no earnings.” If balance shows principal but all streams are empty → error (not silent ok/0). |
-| Monad | Unclaimed staking rewards **only from validators the wallet is (or was) delegated to**, via precompile `0x1000` `getDelegations` → `getDelegator`. Not arbitrary transfers; not non-delegated validators. Pending snapshot only (no multi-year claim history on public RPC). |
+| Monad | Unclaimed staking rewards **and claimed `ClaimRewards`** from validators the wallet is/was delegated to. Pending via precompile `0x1000` `getDelegations` → `getDelegator`. Claimed via Etherscan V2 explorer logs (full history when `MONAD_EXPLORER_API_KEY` set) or chunked archive `eth_getLogs` (`MONAD_ARCHIVE_RPC_URL`, default Ankr public). Soft-degrades to pending-only if history APIs fail. Not arbitrary transfers. |
 | LUNC | Terra Classic claimed staking rewards (FCD account history / autostake withdraws) + current pending via LCD |
 
 No Zerion sprawl. No tax engine. No APY farm browser.
@@ -40,7 +40,7 @@ Dashboard sync supports three user-facing modes:
 | Source | Sync / persist | Display |
 |--------|----------------|---------|
 | Binance / OKX | History fetched for the selected window. Custom → merge-replace inside the window (rows outside are kept). First run or “Re-download full history” → full replace. Later “Import missing” → incremental upsert from high-water. | Full persisted ledger (picker is **not** a view filter) |
-| Monad | Point-in-time pending unclaimed from the wallet’s **current delegation set** (`getDelegations`) — **date range ignored**; always full-replace snapshot. Claimed `ClaimRewards` history is not indexed (RPC `eth_getLogs` ≤100 blocks). | Current pending rows per delegated validator (`earnedAt` = sync time) |
+| Monad | Claimed `ClaimRewards` (explorer or archive RPC) for the selected window + current pending unclaimed from the wallet’s **current delegation set**. Soft-degrade: if history APIs fail, upsert pending only and keep prior claimed rows. Public `rpc.monad.xyz` getLogs is still ≤100 blocks — archive/explorer work around that. | Claimed rows at tx time + pending snapshot (`earnedAt` = sync time) |
 | LUNC | Claimed `withdraw_rewards` / autostake history for the selected window (FCD; LCD fallback ~100d prune) + current pending when the range reaches today. Incremental when “Import missing”; pending snapshot still refreshes. | Claimed rows at tx time + pending snapshot (`earnedAt` = sync time) |
 
 Last-used window + auto-import preference are stored in the browser (`localStorage`). Auto-import never force-full-syncs and never runs on a cold ledger (no prior history).
@@ -48,6 +48,19 @@ Last-used window + auto-import preference are stored in the browser (`localStora
 If exchange history in the ledger only spans a few days after a multi-year sync, use **Re-download full history** or sync a wider custom range (older truncating bugs capped loads at 500 rows).
 
 OKX: if sync errors about missing interest while savings balance shows principal, or status is `ok` with **0 events** while the OKX app shows Earn, use **Re-download full history**. Interest is usually funding Auto lend (**type 400**) or account Auto Earn (**381**), not only legacy `INTEREST_DEPOSIT` (126). Confirm the API key is live (not demo) with Read permission.
+
+## Monad claim history (workaround)
+
+Public `rpc.monad.xyz` caps `eth_getLogs` at ~100 blocks, so YieldScope does **not** rebuild claim history from that endpoint.
+
+| Path | When | Coverage |
+|------|------|----------|
+| Pending `getDelegator` | Always | Current unclaimed per validator in `getDelegations` |
+| Etherscan API V2 logs (`MONAD_EXPLORER_API_KEY`) | Key set | Full indexed `ClaimRewards` for the wallet (recommended) |
+| Archive RPC chunks (`MONAD_ARCHIVE_RPC_URL`, default Ankr `rpc3`) | No explorer key / explorer down | Recent window (`MONAD_CLAIM_HISTORY_MAX_BLOCKS`, default 500k ≈ days) |
+| Soft-degrade | Both history paths fail | Pending only; prior claimed ledger rows kept |
+
+**Still limited without an explorer key:** multi-month / full-mainnet claimed history and fully exited validators’ past claims need the free Etherscan key (Monad chainid `143`). Compound-before-ClaimRewards-event protocol versions may omit some compounds.
 
 ## Fail closed
 
