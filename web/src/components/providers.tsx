@@ -44,7 +44,7 @@ const config = getDefaultConfig({
   transports: {
     [monadMainnet.id]: http(defaultMonadRpcUrl()),
   },
-  // Injected Phantom / MetaMask / OKX in this browser first; WC QR for phone.
+  // Phantom only (injected in this browser). No MetaMask / OKX / WC list clutter.
   // Avoid deep links that OS-route to another installed browser (e.g. Brave).
   wallets: buildYieldScopeWalletList(),
   ssr: true,

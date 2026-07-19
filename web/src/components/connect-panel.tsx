@@ -258,14 +258,12 @@ export function ConnectPanel() {
           <SavedBadge status={status.monad_stake} label="Wallet" />
         </div>
         <p className="hint">
-          Connect on Monad mainnet (chain {DEFAULT_MONAD_CHAIN_ID}) in{" "}
-          <strong>this browser</strong> — use Phantom / MetaMask / OKX from the
-          “This browser” group so we stay here (no handoff to Brave or another
-          app). Install the Phantom extension in the browser you&apos;re using;
-          if Phantom only lives in Brave, the OS may still open Brave via{" "}
-          <code>phantom://</code>. On phone: open this site in Phantom&apos;s
-          browser, or pick “Phone (QR)” and scan with the Phantom mobile app.
-          Then hit Save connection. Use Monad (not Monad Testnet) if prompted.
+          Connect with <strong>Phantom</strong> on Monad mainnet (chain{" "}
+          {DEFAULT_MONAD_CHAIN_ID}) in <strong>this browser</strong>. Install
+          the Phantom extension here (not only in Brave) so we stay in-tab —
+          no <code>phantom://</code> handoff. On phone: open this site in
+          Phantom&apos;s in-app browser. Then hit Save connection. Use Monad
+          (not Monad Testnet) if prompted.
         </p>
         <div className="wallet-connect">
           <NavWalletButton variant="panel" />

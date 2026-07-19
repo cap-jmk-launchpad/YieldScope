@@ -52,21 +52,20 @@ describe("resolveWalletConnectProjectId", () => {
 });
 
 describe("in-browser wallet preference", () => {
-  it("lists Phantom + injected before WalletConnect, in separate groups", () => {
+  it("lists Phantom only (no MetaMask, injected, OKX, or WalletConnect row)", () => {
     expect(YIELDSCOPE_WALLET_GROUP_IDS).toEqual([
       {
-        groupName: "This browser",
-        walletIds: ["phantom", "injected", "metaMask", "okx"],
-      },
-      {
-        groupName: "Phone (QR)",
-        walletIds: ["walletConnect"],
+        groupName: "Connect",
+        walletIds: ["phantom"],
       },
     ]);
-    const browserIds = YIELDSCOPE_WALLET_GROUP_IDS[0].walletIds;
-    expect(browserIds[0]).toBe("phantom");
-    expect(browserIds).not.toContain("walletConnect");
-    expect(browserIds).not.toContain("rainbow");
+    const ids = YIELDSCOPE_WALLET_GROUP_IDS[0].walletIds;
+    expect(ids).toEqual(["phantom"]);
+    expect(ids).not.toContain("walletConnect");
+    expect(ids).not.toContain("metaMask");
+    expect(ids).not.toContain("injected");
+    expect(ids).not.toContain("okx");
+    expect(ids).not.toContain("rainbow");
   });
 
   it("strips mobile / protocol-handoff download URLs, keeps extension store links", () => {

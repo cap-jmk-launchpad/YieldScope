@@ -1,16 +1,10 @@
 /**
  * RainbowKit wallet list — client-only (imports RK wallets).
- * Prefer injected Phantom in this browser; WC QR for phone.
+ * Phantom only (injected in the current browser). Untested wallets stay out.
  */
 
 import type { WalletList } from "@rainbow-me/rainbowkit";
-import {
-  injectedWallet,
-  metaMaskWallet,
-  okxWallet,
-  phantomWallet,
-  walletConnectWallet,
-} from "@rainbow-me/rainbowkit/wallets";
+import { phantomWallet } from "@rainbow-me/rainbowkit/wallets";
 import { preferInBrowserDownloadUrls } from "@/lib/wallet-config";
 
 /**
@@ -30,23 +24,15 @@ export function phantomInBrowserWallet(
 }
 
 /**
- * Wallet list for RainbowKit: injected Phantom first, WalletConnect last (QR only).
- * Omits Rainbow (desktop `rnbwapp.com` / deep-link path) to avoid cross-browser handoff.
+ * Wallet list for RainbowKit: Phantom only.
+ * Omits MetaMask, OKX, generic injected, Rainbow, and a separate WalletConnect
+ * row so the modal does not advertise untested wallets.
  */
 export function buildYieldScopeWalletList(): WalletList {
   return [
     {
-      groupName: "This browser",
-      wallets: [
-        phantomInBrowserWallet,
-        injectedWallet,
-        metaMaskWallet,
-        okxWallet,
-      ],
-    },
-    {
-      groupName: "Phone (QR)",
-      wallets: [walletConnectWallet],
+      groupName: "Connect",
+      wallets: [phantomInBrowserWallet],
     },
   ];
 }

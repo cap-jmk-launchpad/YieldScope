@@ -46,12 +46,8 @@ export function isDemoWalletConnectProjectId(projectId: string): boolean {
 /** Documented wallet order — unit-tested; keep in sync with buildYieldScopeWalletList. */
 export const YIELDSCOPE_WALLET_GROUP_IDS = [
   {
-    groupName: "This browser",
-    walletIds: ["phantom", "injected", "metaMask", "okx"] as const,
-  },
-  {
-    groupName: "Phone (QR)",
-    walletIds: ["walletConnect"] as const,
+    groupName: "Connect",
+    walletIds: ["phantom"] as const,
   },
 ] as const;
 
